@@ -22,7 +22,7 @@ interface ProviderState {
   source: string; // "manual" | "auto" | "none"
 }
 
-const PROVIDER_IDS: ModelProvider[] = ["anthropic", "openai", "openai-compatible"];
+const PROVIDER_IDS: ModelProvider[] = ["anthropic", "openai", "gemini", "openai-compatible"];
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: "Manually configured",
@@ -166,7 +166,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 ? "https://api.anthropic.com"
                 : activeProvider === "openai"
                   ? "https://api.openai.com/v1"
-                  : "https://your-api-endpoint.com/v1"
+                  : activeProvider === "gemini"
+                    ? "https://llm-proxy.tapsvc.com/v1"
+                    : "https://your-api-endpoint.com/v1"
             }
           />
           <p className="text-xs text-muted-foreground mt-1">

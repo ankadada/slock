@@ -61,7 +61,7 @@ export interface AgentDefinition {
   tools: ToolDefinition[];
   systemPrompt: string;
   model: string;
-  provider: "anthropic" | "openai" | "custom";
+  provider: "anthropic" | "openai" | "gemini" | "custom";
   thinkingLevel?: ThinkingLevel;
   isActive: boolean;
   createdAt: string;
@@ -115,44 +115,40 @@ export const AGENT_ROLE_PROMPTS: Record<AgentRole, string> = {
 // Model Provider Configuration
 // ============================================================
 
-export type ModelProvider = "anthropic" | "openai" | "openai-compatible";
+export type ModelProvider = "anthropic" | "openai" | "gemini" | "openai-compatible";
+
+export type ModelCategory = "anthropic" | "openai" | "gemini";
+
+export const MODEL_CATEGORY_LABELS: Record<ModelCategory, string> = {
+  anthropic: "Anthropic (Claude)",
+  openai: "OpenAI (GPT)",
+  gemini: "Google (Gemini)",
+};
 
 export interface ModelOption {
   id: string;
   name: string;
-  provider: ModelProvider;
+  provider: ModelCategory;
   description?: string;
 }
 
-// Fallback model list -- the real OpenAI list is fetched dynamically
-// from the /v1/models API in provider-detector.ts
 export const MODEL_OPTIONS: ModelOption[] = [
-  // Anthropic models
+  // Anthropic
   { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic", description: "Fast and capable" },
   { id: "claude-opus-4-6", name: "Claude Opus 4.6", provider: "anthropic", description: "Most capable" },
-  { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", provider: "anthropic", description: "Fastest, cheapest" },
-  // OpenAI GPT-5.4 family (latest, 2026)
-  { id: "gpt-5.4", name: "GPT-5.4", provider: "openai", description: "Frontier, best reasoning" },
-  { id: "gpt-5.4-pro", name: "GPT-5.4 Pro", provider: "openai", description: "Max performance" },
-  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", provider: "openai", description: "Fast, high-volume" },
-  { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", provider: "openai", description: "Fastest, cheapest" },
-  // OpenAI GPT-4 family
-  { id: "gpt-4.1", name: "GPT-4.1", provider: "openai" },
-  { id: "gpt-4.1-mini", name: "GPT-4.1 Mini", provider: "openai" },
-  { id: "gpt-4.1-nano", name: "GPT-4.1 Nano", provider: "openai" },
-  { id: "gpt-4o", name: "GPT-4o", provider: "openai" },
-  { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
-  // OpenAI reasoning models
-  { id: "o3", name: "o3", provider: "openai" },
-  { id: "o3-mini", name: "o3 Mini", provider: "openai" },
-  { id: "o4-mini", name: "o4-mini", provider: "openai" },
-  // OpenAI-compatible (user can type custom model ID)
-  { id: "custom", name: "Custom Model", provider: "openai-compatible", description: "Any OpenAI-compatible API" },
+  { id: "claude-haiku-4-5", name: "Claude Haiku 4.5", provider: "anthropic", description: "Fastest, cheapest" },
+  // OpenAI
+  { id: "gpt-5.4", name: "GPT-5.4", provider: "openai", description: "Frontier model" },
+  { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", provider: "openai", description: "Fast, affordable" },
+  // Gemini
+  { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", provider: "gemini", description: "Google flagship" },
+  { id: "gemini-3-flash-preview", name: "Gemini 3 Flash", provider: "gemini", description: "Google fast" },
 ];
 
 export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   anthropic: "Anthropic (Claude)",
   openai: "OpenAI (GPT)",
+  gemini: "Google (Gemini)",
   "openai-compatible": "OpenAI Compatible",
 };
 
@@ -439,7 +435,7 @@ export interface CreateAgentRequest {
   description: string;
   systemPrompt?: string;
   model?: string;
-  provider?: "anthropic" | "openai" | "custom";
+  provider?: "anthropic" | "openai" | "gemini" | "custom";
   thinkingLevel?: ThinkingLevel;
   capabilities?: string[];
   tools?: ToolDefinition[];

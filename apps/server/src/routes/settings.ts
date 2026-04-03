@@ -26,6 +26,7 @@ interface AppSettings {
   providers: {
     anthropic?: ProviderConfig;
     openai?: ProviderConfig;
+    gemini?: ProviderConfig;
     "openai-compatible"?: ProviderConfig;
   };
 }
@@ -103,6 +104,7 @@ settingsRouter.get("/", (_req: Request, res: Response) => {
       providers: {
         anthropic: makeEntry("anthropic"),
         openai: makeEntry("openai"),
+        gemini: makeEntry("gemini"),
         "openai-compatible": makeEntry("openai-compatible"),
       },
     },
@@ -160,7 +162,7 @@ settingsRouter.get("/providers", async (_req: Request, res: Response) => {
 
 // Update provider settings
 const updateSchema = z.object({
-  provider: z.enum(["anthropic", "openai", "openai-compatible"]),
+  provider: z.enum(["anthropic", "openai", "gemini", "openai-compatible"]),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
 });
@@ -196,7 +198,11 @@ settingsRouter.put("/", (req: Request, res: Response) => {
 // Utilities for agent service
 export function getProviderConfig(provider: string): ProviderConfig {
   const settings = loadSettings();
-  const manual = settings.providers[provider as keyof typeof settings.providers] || {};
+
+  // Gemini uses the same proxy credentials as openai (OpenAI-compatible endpoint)
+  // Both go through the LiteLLM proxy at /v1/chat/completions
+  const lookupProvider = provider === "gemini" ? "openai" : provider;
+  const manual = settings.providers[lookupProvider as keyof typeof settings.providers] || {};
 
   // Manual settings first
   if (manual.apiKey) {
@@ -207,7 +213,7 @@ export function getProviderConfig(provider: string): ProviderConfig {
   }
 
   // Fall back to auto-detected credentials
-  const auto = resolveAutoCredentials(provider);
+  const auto = resolveAutoCredentials(lookupProvider);
   return {
     apiKey: manual.apiKey || auto.apiKey,
     baseUrl: manual.baseUrl || auto.baseUrl,

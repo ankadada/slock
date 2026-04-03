@@ -67,17 +67,7 @@ function findBinary(name: string): string | undefined {
 
 const OPENAI_FALLBACK_MODELS = [
   "gpt-5.4",
-  "gpt-5.4-pro",
   "gpt-5.4-mini",
-  "gpt-5.4-nano",
-  "gpt-4.1",
-  "gpt-4.1-mini",
-  "gpt-4.1-nano",
-  "gpt-4o",
-  "gpt-4o-mini",
-  "o3",
-  "o3-mini",
-  "o4-mini",
 ];
 
 // ============================================================
@@ -92,7 +82,7 @@ function detectAnthropic(): DetectedProvider | null {
     models: [
       "claude-sonnet-4-6",
       "claude-opus-4-6",
-      "claude-haiku-4-5-20251001",
+      "claude-haiku-4-5",
     ],
   };
 
@@ -181,12 +171,13 @@ function detectGemini(): DetectedProvider | null {
     name: "Google (Gemini)",
     source: "env",
     models: [
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-3-flash-preview",
     ],
   };
 
-  // 1. Environment variable
+  // Gemini goes through the same LiteLLM proxy as OpenAI, using the same API key.
+  // Check for the OpenAI/Anthropic key that the proxy accepts.
   const envKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (envKey) {
     provider.apiKey = envKey;
@@ -194,7 +185,23 @@ function detectGemini(): DetectedProvider | null {
     return provider;
   }
 
-  // 2. Gemini CLI binary
+  // Fall back: reuse the OpenAI key since Gemini goes through the same proxy
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    provider.apiKey = openaiKey;
+    provider.source = "env";
+    return provider;
+  }
+
+  // Fall back: reuse the Anthropic key since everything goes through the LiteLLM proxy
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    provider.apiKey = anthropicKey;
+    provider.source = "env";
+    return provider;
+  }
+
+  // Gemini CLI binary
   const cliPath = findBinary("gemini");
   if (cliPath) {
     provider.cliPath = cliPath;

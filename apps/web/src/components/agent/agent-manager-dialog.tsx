@@ -6,12 +6,11 @@ import { Avatar } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAgentStore } from "@/stores/agent-store";
 import { useChannelStore } from "@/stores/channel-store";
-import { AGENT_ROLE_LABELS, MODEL_OPTIONS, PROVIDER_LABELS, THINKING_LEVEL_LABELS } from "@slock/shared";
-import type { AgentRole, ModelProvider, CreateAgentRequest, AgentDefinition, ThinkingLevel } from "@slock/shared";
-import { Plus, Trash2, UserPlus, UserMinus, Bot, Wrench, Zap } from "lucide-react";
+import { AGENT_ROLE_LABELS, MODEL_OPTIONS, MODEL_CATEGORY_LABELS, THINKING_LEVEL_LABELS } from "@slock/shared";
+import type { AgentRole, ModelCategory, CreateAgentRequest, AgentDefinition, ThinkingLevel } from "@slock/shared";
+import { Plus, Trash2, UserPlus, UserMinus, Bot, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api";
-import type { DetectedProviderInfo } from "@/lib/api";
 import { AgentSkillsEditor } from "./agent-skills-editor";
 
 interface AgentManagerDialogProps {
@@ -232,129 +231,34 @@ export function AgentManagerDialog({ open, onClose }: AgentManagerDialogProps) {
   );
 }
 
-// ============================================================
-// Source badge label helper
-// ============================================================
-
-const SOURCE_BADGE: Record<string, string> = {
-  env: "env",
-  "cli-config": "CLI",
-  "cli-binary": "CLI",
-  manual: "manual",
-};
-
 function CreateAgentForm({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("custom");
   const [customRole, setCustomRole] = useState("");
   const [description, setDescription] = useState("");
-  const [provider, setProvider] = useState<ModelProvider>("anthropic");
+  const [category, setCategory] = useState<ModelCategory>("anthropic");
   const [model, setModel] = useState("claude-sonnet-4-6");
-  const [customModel, setCustomModel] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("none");
   const [autoRespond, setAutoRespond] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [detectedProviders, setDetectedProviders] = useState<DetectedProviderInfo[]>([]);
 
   const createAgent = useAgentStore((s) => s.createAgent);
 
-  // Fetch detected providers on mount
-  useEffect(() => {
-    api.getDetectedProviders()
-      .then(setDetectedProviders)
-      .catch(() => {
-        // Fallback: no detection available
-      });
-  }, []);
-
   const roles = Object.entries(AGENT_ROLE_LABELS) as [AgentRole, string][];
+  const categories = Object.entries(MODEL_CATEGORY_LABELS) as [ModelCategory, string][];
 
-  // Build provider list: combine static list with detected providers
-  const staticProviders = Object.entries(PROVIDER_LABELS) as [ModelProvider, string][];
+  const availableModels = MODEL_OPTIONS.filter((m) => m.provider === category);
 
-  // Merge detected providers into a unified list
-  const providerEntries = staticProviders.map(([id, label]) => {
-    const detected = detectedProviders.find((dp) => dp.id === id);
-    return {
-      id: id as ModelProvider,
-      label,
-      detected,
-      hasKey: detected?.hasKey || false,
-      source: detected?.source || ("none" as const),
-    };
-  });
-
-  // Add any detected providers not in the static list (e.g., gemini, ollama)
-  for (const dp of detectedProviders) {
-    if (!staticProviders.find(([id]) => id === dp.id)) {
-      providerEntries.push({
-        id: dp.id as ModelProvider,
-        label: dp.name,
-        detected: dp,
-        hasKey: dp.hasKey,
-        source: dp.source,
-      });
-    }
-  }
-
-  // Build model list for current provider
-  const buildModelList = () => {
-    // Standard models from shared config
-    const standardModels = MODEL_OPTIONS.filter(
-      (m) => m.provider === provider && m.id !== "custom"
-    );
-
-    // Additional models from detected provider
-    const detected = detectedProviders.find((dp) => dp.id === provider);
-    if (detected) {
-      const existingIds = new Set(standardModels.map((m) => m.id));
-      for (const modelId of detected.models) {
-        if (!existingIds.has(modelId)) {
-          standardModels.push({
-            id: modelId,
-            name: modelId,
-            provider: provider,
-            description: "Detected",
-          });
-        }
-      }
-    }
-
-    return standardModels;
-  };
-
-  const availableModels = buildModelList();
-
-  const handleProviderChange = (p: ModelProvider) => {
-    setProvider(p);
-    const firstModel = MODEL_OPTIONS.find((m) => m.provider === p && m.id !== "custom");
-    // Also check detected models
-    const detected = detectedProviders.find((dp) => dp.id === p);
-    if (firstModel) {
-      setModel(firstModel.id);
-    } else if (detected && detected.models.length > 0) {
-      setModel(detected.models[0]);
-    } else {
-      setModel("");
-    }
+  const handleCategoryChange = (c: ModelCategory) => {
+    setCategory(c);
+    const firstModel = MODEL_OPTIONS.find((m) => m.provider === c);
+    setModel(firstModel?.id || "");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !description.trim()) return;
-
-    // For openai-compatible or providers not in the static list, use custom model
-    const isCustomProvider = provider === "openai-compatible" ||
-      !staticProviders.find(([id]) => id === provider);
-    const finalModel = isCustomProvider ? (customModel || model) : model;
-    if (!finalModel) return;
-
-    // Map non-standard providers to "openai-compatible" for the backend
-    let backendProvider: ModelProvider = provider;
-    if (!["anthropic", "openai", "openai-compatible"].includes(provider)) {
-      backendProvider = "openai-compatible";
-    }
+    if (!name.trim() || !description.trim() || !model) return;
 
     setIsSubmitting(true);
     setError("");
@@ -366,8 +270,8 @@ function CreateAgentForm({ onCreated }: { onCreated: () => void }) {
         name: name.trim(),
         role: customRole.trim() || role,
         description: description.trim(),
-        provider: backendProvider,
-        model: finalModel,
+        provider: category,
+        model,
         thinkingLevel,
         capabilities,
       });
@@ -378,9 +282,6 @@ function CreateAgentForm({ onCreated }: { onCreated: () => void }) {
       setIsSubmitting(false);
     }
   };
-
-  const isAutoDetected = (source: string) =>
-    source === "env" || source === "cli-config" || source === "cli-binary";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -426,98 +327,51 @@ function CreateAgentForm({ onCreated }: { onCreated: () => void }) {
         </div>
       </div>
 
-      {/* Provider selection */}
+      {/* Model category selection */}
       <div>
-        <label className="text-sm font-medium text-foreground">AI Provider</label>
+        <label className="text-sm font-medium text-foreground">Model Category</label>
         <div className="mt-1 flex flex-wrap gap-2">
-          {providerEntries.map(({ id, label, hasKey, source }) => (
+          {categories.map(([id, label]) => (
             <button
               key={id}
               type="button"
-              onClick={() => handleProviderChange(id)}
+              onClick={() => handleCategoryChange(id)}
               className={cn(
-                "rounded-md border px-3 py-1.5 text-xs transition-colors relative",
-                provider === id
+                "rounded-md border px-3 py-1.5 text-xs transition-colors",
+                category === id
                   ? "border-primary bg-primary/10 text-primary"
-                  : "border-input text-muted-foreground hover:bg-accent",
-                !hasKey && "opacity-80"
+                  : "border-input text-muted-foreground hover:bg-accent"
               )}
             >
-              <span>{label}</span>
-              {hasKey && isAutoDetected(source) && (
-                <Zap className="h-3 w-3 inline ml-1 text-green-500" />
-              )}
+              {label}
             </button>
           ))}
         </div>
-        {/* Show source info for selected provider */}
-        {(() => {
-          const entry = providerEntries.find((e) => e.id === provider);
-          if (entry && entry.hasKey && isAutoDetected(entry.source)) {
-            return (
-              <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
-                <Zap className="h-3 w-3" />
-                Auto-detected from {SOURCE_BADGE[entry.source] || entry.source} -- no configuration needed
-              </p>
-            );
-          }
-          if (entry && !entry.hasKey) {
-            return (
-              <p className="text-xs text-amber-500 mt-1">
-                No API key found. Configure in Settings or set the environment variable.
-              </p>
-            );
-          }
-          return null;
-        })()}
       </div>
 
       {/* Model selection */}
       <div>
         <label className="text-sm font-medium text-foreground">Model</label>
-        {provider === "openai-compatible" ? (
-          <Input
-            value={customModel}
-            onChange={(e) => setCustomModel(e.target.value)}
-            placeholder="e.g. deepseek-chat, qwen-max, gemini-pro"
-            className="mt-1"
-          />
-        ) : availableModels.length > 0 ? (
-          <div className="mt-1 space-y-1.5">
-            {availableModels.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setModel(m.id)}
-                className={cn(
-                  "flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm text-left transition-colors",
-                  model === m.id
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-input text-muted-foreground hover:bg-accent"
-                )}
-              >
-                <span className="font-medium">{m.name}</span>
-                <span className="flex items-center gap-2">
-                  {m.description === "Detected" && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-                      detected
-                    </span>
-                  )}
-                  {m.description && m.description !== "Detected" && (
-                    <span className="text-xs opacity-60">{m.description}</span>
-                  )}
-                </span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <Input
-            value={customModel || model}
-            onChange={(e) => { setCustomModel(e.target.value); setModel(e.target.value); }}
-            placeholder="Enter model name..."
-            className="mt-1"
-          />
-        )}
+        <div className="mt-1 space-y-1.5">
+          {availableModels.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setModel(m.id)}
+              className={cn(
+                "flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm text-left transition-colors",
+                model === m.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:bg-accent"
+              )}
+            >
+              <span className="font-medium">{m.name}</span>
+              {m.description && (
+                <span className="text-xs opacity-60">{m.description}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Thinking level selector */}
@@ -587,7 +441,7 @@ function CreateAgentForm({ onCreated }: { onCreated: () => void }) {
           disabled={
             !name.trim() ||
             !description.trim() ||
-            (!model && !customModel) ||
+            !model ||
             isSubmitting
           }
         >
