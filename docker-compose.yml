@@ -1,0 +1,17 @@
+services:
+  slock:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - DATABASE_URL=file:/app/data/slock.db
+      - JWT_SECRET=${JWT_SECRET:-change-this-in-production}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      - slock-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  slock-data:

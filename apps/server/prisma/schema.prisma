@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String          @id @default(uuid())
+  username     String          @unique
+  email        String          @unique
+  passwordHash String
+  avatar       String?
+  isOnline     Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  messages     Message[]
+  memberships  ChannelMember[]
+  invites      Invite[]
+}
+
+model Channel {
+  id              String          @id @default(uuid())
+  name            String
+  description     String?
+  type            String          @default("public") // public | private | dm | thread
+  parentChannelId String?
+  sourceMessageId String?
+  archivedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  messages        Message[]
+  members         ChannelMember[]
+  agents          ChannelAgent[]
+  workflows       Workflow[]
+  parentChannel   Channel?        @relation("ThreadParent", fields: [parentChannelId], references: [id])
+  threads         Channel[]       @relation("ThreadParent")
+}
+
+model ChannelMember {
+  id        String   @id @default(uuid())
+  userId    String
+  channelId String
+  role      String   @default("member") // admin | member
+  joinedAt  DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+}
+
+model AgentConfig {
+  id           String         @id @default(uuid())
+  name         String
+  role         String         @default("custom")
+  avatar       String?
+  description  String
+  capabilities String         @default("[]") // JSON array
+  tools        String         @default("[]") // JSON array of ToolDefinition
+  systemPrompt String
+  model        String         @default("claude-sonnet-4-6")
+  provider     String         @default("anthropic")
+  thinkingLevel String        @default("none") // none | low | medium | high
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  messages     Message[]
+  channels     ChannelAgent[]
+  memories     AgentMemory[]
+  workflowSteps WorkflowStep[]
+}
+
+model ChannelAgent {
+  id        String      @id @default(uuid())
+  channelId String
+  agentId   String
+  joinedAt  DateTime    @default(now())
+  channel   Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  agent     AgentConfig @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, agentId])
+}
+
+model Message {
+  id          String       @id @default(uuid())
+  content     String
+  type        String       @default("text") // text | system | agent
+  userId      String?
+  agentId     String?
+  channelId   String
+  parentId    String?
+  uiComponent String?      // JSON UIComponent
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent       AgentConfig? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  parent      Message?     @relation("MessageThread", fields: [parentId], references: [id])
+  replies     Message[]    @relation("MessageThread")
+}
+
+model AgentMemory {
+  id        String      @id @default(uuid())
+  agentId   String
+  channelId String
+  key       String
+  content   String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  agent     AgentConfig @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, channelId, key])
+}
+
+model Workflow {
+  id               String         @id @default(uuid())
+  name             String
+  description      String?
+  channelId        String
+  status           String         @default("idle") // idle | running | paused | completed | failed
+  currentStepIndex Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  channel          Channel        @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  steps            WorkflowStep[]
+}
+
+model WorkflowStep {
+  id              String      @id @default(uuid())
+  workflowId      String
+  agentId         String
+  action          String
+  prompt          String
+  waitForApproval Boolean     @default(false)
+  maxTurns        Int         @default(5)
+  stepOrder       Int
+  status          String      @default("pending") // pending | running | completed | skipped | failed
+  result          String?
+  workflow        Workflow    @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  agent           AgentConfig @relation(fields: [agentId], references: [id])
+}
+
+model Invite {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  createdBy String
+  expiresAt DateTime?
+  maxUses   Int       @default(0) // 0 = unlimited
+  uses      Int       @default(0)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  creator   User      @relation(fields: [createdBy], references: [id])
+}
