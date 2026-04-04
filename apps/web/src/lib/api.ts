@@ -319,3 +319,98 @@ export async function validateInvite(code: string): Promise<{ valid: boolean; me
 export async function deleteInvite(id: string): Promise<void> {
   await request(`/invites/${id}`, { method: "DELETE" });
 }
+
+// ---- Agent Memories ----
+
+export async function getAgentMemories(
+  agentId: string,
+  channelId: string
+): Promise<import("@slock/shared").AgentMemoryEntry[]> {
+  const res = await request<import("@slock/shared").AgentMemoryEntry[]>(
+    `/memories/${agentId}/${channelId}`
+  );
+  return res.data!;
+}
+
+export async function getSharedMemories(
+  channelId: string
+): Promise<import("@slock/shared").AgentMemoryEntry[]> {
+  const res = await request<import("@slock/shared").AgentMemoryEntry[]>(
+    `/memories/shared/${channelId}`
+  );
+  return res.data!;
+}
+
+export async function deleteMemory(id: string): Promise<void> {
+  await request(`/memories/${id}`, { method: "DELETE" });
+}
+
+export async function generateDailySummary(
+  agentId: string,
+  channelId: string
+): Promise<{ summary: string }> {
+  const res = await request<{ summary: string }>(
+    `/memories/${agentId}/${channelId}/summarize`,
+    { method: "POST" }
+  );
+  return res.data!;
+}
+
+// ---- Schedules ----
+
+export interface AgentSchedule {
+  id: string;
+  agentId: string;
+  agentName: string;
+  channelId: string;
+  channelName: string;
+  name: string;
+  cron: string;
+  prompt: string;
+  enabled: boolean;
+  lastRun?: string;
+  nextRun?: string;
+  cronDescription?: string;
+  createdAt: string;
+}
+
+export interface CreateScheduleData {
+  agentId: string;
+  agentName: string;
+  channelId: string;
+  channelName: string;
+  name: string;
+  cron: string;
+  prompt: string;
+  enabled: boolean;
+}
+
+export async function getSchedules(channelId?: string): Promise<AgentSchedule[]> {
+  const params = channelId ? `?channelId=${channelId}` : "";
+  const res = await request<AgentSchedule[]>(`/schedules${params}`);
+  return res.data!;
+}
+
+export async function createScheduleApi(data: CreateScheduleData): Promise<AgentSchedule> {
+  const res = await request<AgentSchedule>("/schedules", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return res.data!;
+}
+
+export async function updateScheduleApi(id: string, data: Partial<AgentSchedule>): Promise<AgentSchedule> {
+  const res = await request<AgentSchedule>(`/schedules/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  return res.data!;
+}
+
+export async function deleteScheduleApi(id: string): Promise<void> {
+  await request(`/schedules/${id}`, { method: "DELETE" });
+}
+
+export async function runScheduleNowApi(id: string): Promise<void> {
+  await request(`/schedules/${id}/run`, { method: "POST" });
+}

@@ -202,6 +202,25 @@ export interface AgentMemory {
 }
 
 // ============================================================
+// Memory Layer Types
+// ============================================================
+
+export type MemoryLayer = "session" | "daily" | "long_term" | "shared";
+
+export interface AgentMemoryEntry {
+  id: string;
+  agentId: string;
+  channelId: string;
+  layer: MemoryLayer;
+  key: string;
+  content: string;
+  importance: number;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================
 // Generative UI Types
 // ============================================================
 

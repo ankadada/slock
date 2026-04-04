@@ -20,6 +20,10 @@ import { threadRouter } from "./routes/threads.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { setupSocketHandlers } from "./socket/index.js";
 import { prisma } from "./lib/prisma.js";
+import { memoryRouter } from "./routes/memories.js";
+import { taskRouter } from "./routes/tasks.js";
+import { createSchedulesRouter } from "./routes/schedules.js";
+import { startScheduler } from "./services/scheduler-service.js";
 
 // Validate required environment variables
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -87,6 +91,9 @@ app.use("/api/workflows", authMiddleware, workflowRouter);
 app.use("/api/settings", authMiddleware, settingsRouter);
 app.use("/api/invites", inviteRouter);
 app.use("/api/threads", authMiddleware, threadRouter);
+app.use("/api/memories", authMiddleware, memoryRouter);
+app.use("/api/tasks", authMiddleware, taskRouter);
+app.use("/api/schedules", authMiddleware, createSchedulesRouter(io));
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -108,6 +115,8 @@ setupSocketHandlers(io);
 const PORT = parseInt(process.env.PORT || "3000", 10);
 server.listen(PORT, () => {
   console.log(`Slock server running on http://localhost:${PORT}`);
+  startScheduler(io);
+  console.log("Scheduler started");
 });
 
 export { io };

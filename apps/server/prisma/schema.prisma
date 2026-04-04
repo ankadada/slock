@@ -102,16 +102,20 @@ model Message {
 }
 
 model AgentMemory {
-  id        String      @id @default(uuid())
-  agentId   String
-  channelId String
-  key       String
-  content   String
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  agent     AgentConfig @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id         String      @id @default(uuid())
+  agentId    String
+  channelId  String
+  layer      String      @default("long_term") // session | daily | long_term | shared
+  key        String
+  content    String
+  importance Int         @default(0) // 0-10, for prioritizing retrieval
+  expiresAt  DateTime?   // session memories auto-expire
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  agent      AgentConfig @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([agentId, channelId, key])
+  @@index([channelId, layer])
 }
 
 model Workflow {
