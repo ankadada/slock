@@ -115,14 +115,15 @@ export const AGENT_ROLE_PROMPTS: Record<AgentRole, string> = {
 // Model Provider Configuration
 // ============================================================
 
-export type ModelProvider = "anthropic" | "openai" | "gemini" | "openai-compatible";
+export type ModelProvider = "anthropic" | "openai" | "gemini" | "other" | "openai-compatible";
 
-export type ModelCategory = "anthropic" | "openai" | "gemini";
+export type ModelCategory = "anthropic" | "openai" | "gemini" | "other";
 
 export const MODEL_CATEGORY_LABELS: Record<ModelCategory, string> = {
   anthropic: "Anthropic (Claude)",
   openai: "OpenAI (GPT)",
   gemini: "Google (Gemini)",
+  other: "Other",
 };
 
 export interface ModelOption {
@@ -143,12 +144,21 @@ export const MODEL_OPTIONS: ModelOption[] = [
   // Gemini
   { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro", provider: "gemini", description: "Google flagship" },
   { id: "gemini-3-flash-preview", name: "Gemini 3 Flash", provider: "gemini", description: "Google fast" },
+  { id: "gemini-3-pro-image-preview", name: "Gemini 3 Pro Image", provider: "gemini", description: "Image generation" },
+  { id: "gemini-3.1-flash-image-preview", name: "Gemini 3.1 Flash Image", provider: "gemini", description: "Fast image gen" },
+  // Other (image, audio, embedding, etc.)
+  { id: "gpt-image-1.5", name: "GPT Image 1.5", provider: "other", description: "OpenAI image generation" },
+  { id: "gpt-4o-transcribe", name: "GPT-4o Transcribe", provider: "other", description: "Audio transcription" },
+  { id: "gpt-4o-mini-transcribe", name: "GPT-4o Mini Transcribe", provider: "other", description: "Fast transcription" },
+  { id: "elevenlabs/eleven_v3", name: "ElevenLabs v3", provider: "other", description: "Text-to-speech" },
+  { id: "elevenlabs/eleven_multilingual_v2", name: "ElevenLabs Multilingual", provider: "other", description: "Multilingual TTS" },
 ];
 
 export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   anthropic: "Anthropic (Claude)",
   openai: "OpenAI (GPT)",
   gemini: "Google (Gemini)",
+  other: "Other",
   "openai-compatible": "OpenAI Compatible",
 };
 

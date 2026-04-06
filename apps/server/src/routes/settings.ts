@@ -201,7 +201,8 @@ export function getProviderConfig(provider: string): ProviderConfig {
 
   // Gemini uses the same proxy credentials as openai (OpenAI-compatible endpoint)
   // Both go through the LiteLLM proxy at /v1/chat/completions
-  const lookupProvider = provider === "gemini" ? "openai" : provider;
+  // Gemini and "other" models use the same proxy credentials as openai
+  const lookupProvider = (provider === "gemini" || provider === "other") ? "openai" : provider;
   const manual = settings.providers[lookupProvider as keyof typeof settings.providers] || {};
 
   // Manual settings first
