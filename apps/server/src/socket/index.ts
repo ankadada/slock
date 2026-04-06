@@ -3,6 +3,12 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
 import { processMessage, evaluateAndRespond, processUIAction } from "../services/agent-service.js";
 import { startWorkflow, approveStep } from "../services/workflow-service.js";
+import {
+  getChannelState,
+  classifyUserResponse,
+  flushPendingTriggers,
+  clearState,
+} from "../services/conversation-state.js";
 import type { ServerToClientEvents, ClientToServerEvents } from "@slock/shared";
 import type { AuthUser } from "../middleware/auth.js";
 
@@ -104,6 +110,41 @@ export function setupSocketHandlers(
               }
             : undefined,
         });
+
+        // Check if channel is awaiting user response (from a conditional @mention)
+        const channelState = getChannelState(channelId);
+        if (channelState.status === "awaiting_user") {
+          const userMentions = content.match(/@(\w+)/g)?.map((m) => m.slice(1).toLowerCase()) || [];
+          const responseType = classifyUserResponse(content, channelState, userMentions);
+
+          if (responseType === "confirmation" || responseType === "explicit_mention") {
+            const triggers = flushPendingTriggers(channelId);
+            clearState(channelId);
+
+            // Process user message normally first
+            if (content.match(/@\w+/)) {
+              await processMessage(content, channelId, io);
+            } else {
+              await evaluateAndRespond(content, channelId, user.id, io);
+            }
+
+            // Then fire queued triggers
+            for (const trigger of triggers) {
+              await processMessage(
+                `@${trigger.mentionedAgentName} ${channelState.questionContext || ""}`,
+                channelId,
+                io
+              );
+            }
+            return; // handled
+          } else if (responseType === "rejection") {
+            clearState(channelId);
+            // fall through to normal processing
+          } else {
+            clearState(channelId);
+            // topic change, fall through
+          }
+        }
 
         // If message has @mentions, use direct mention flow (always respond).
         // Otherwise, let agents autonomously evaluate whether to respond.

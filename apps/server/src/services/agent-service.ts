@@ -11,6 +11,10 @@ import {
   convertToOpenAITools,
 } from "../skills/index.js";
 import type { SkillResult } from "../skills/index.js";
+import {
+  classifyMentionIntent,
+  setAwaitingUser,
+} from "./conversation-state.js";
 
 const MAX_AGENT_TURNS = 3;
 const MAX_TOOL_CALLS_PER_TURN = 5;
@@ -817,7 +821,32 @@ export async function evaluateAndRespond(
       // Check for agent-to-agent mentions in the response.
       // Start a new chain with this agent already in the respondedAgents set.
       const respondedAgents = new Set<string>([agent.id]);
-      await processMessage(cleanContent, channelId, io, 1, respondedAgents);
+      const autoRespondMentions = parseMentions(cleanContent);
+      if (autoRespondMentions.length > 0) {
+        const classification = classifyMentionIntent(cleanContent, autoRespondMentions);
+
+        if (classification.type === "conditional_handoff") {
+          // Queue deferred mentions, enter awaiting_user state
+          setAwaitingUser(
+            channelId,
+            agent.id,
+            cleanContent,
+            classification.deferredMentions.map((name) => ({
+              mentionedAgentName: name,
+              sourceAgentId: agent.id,
+              sourceMessageContent: cleanContent,
+              queuedAt: Date.now(),
+            }))
+          );
+          // Only process immediate mentions
+          if (classification.immediateMentions.length > 0) {
+            await processMessage(cleanContent, channelId, io, 1, respondedAgents, true);
+          }
+        } else {
+          // Direct handoff -- existing behavior
+          await processMessage(cleanContent, channelId, io, 1, respondedAgents);
+        }
+      }
     } catch (err) {
       console.error(`Agent ${agent.name} autonomous evaluation error:`, err);
       // Don't emit error to client for autonomous evaluation failures - just log and continue
@@ -968,8 +997,33 @@ export async function processMessage(
       const updatedRespondedAgents = new Set(respondedAgents);
       updatedRespondedAgents.add(agent.id);
 
-      // Check for agent-to-agent mentions in the response (never human-triggered)
-      await processMessage(cleanContent, channelId, io, turnCount + 1, updatedRespondedAgents, false);
+      // Check for agent-to-agent mentions in the response with intent classification
+      const chainMentions = parseMentions(cleanContent);
+      if (chainMentions.length > 0) {
+        const chainClassification = classifyMentionIntent(cleanContent, chainMentions);
+
+        if (chainClassification.type === "conditional_handoff") {
+          // Queue deferred mentions, enter awaiting_user state
+          setAwaitingUser(
+            channelId,
+            agent.id,
+            cleanContent,
+            chainClassification.deferredMentions.map((name) => ({
+              mentionedAgentName: name,
+              sourceAgentId: agent.id,
+              sourceMessageContent: cleanContent,
+              queuedAt: Date.now(),
+            }))
+          );
+          // Only process immediate mentions (never human-triggered)
+          if (chainClassification.immediateMentions.length > 0) {
+            await processMessage(cleanContent, channelId, io, turnCount + 1, updatedRespondedAgents, false);
+          }
+        } else {
+          // Direct handoff -- existing behavior (never human-triggered)
+          await processMessage(cleanContent, channelId, io, turnCount + 1, updatedRespondedAgents, false);
+        }
+      }
     } catch (err) {
       console.error(`Agent ${agent.name} error:`, err);
       io.to(channelId).emit("agent:error", {
