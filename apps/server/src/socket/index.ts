@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
+import { JWT_SECRET } from "../lib/jwt-config.js";
 import { processMessage, evaluateAndRespond, processUIAction } from "../services/agent-service.js";
 import { startWorkflow, approveStep } from "../services/workflow-service.js";
 import {
@@ -36,7 +37,7 @@ export function setupSocketHandlers(
     try {
       const decoded = jwt.verify(
         token,
-        process.env.JWT_SECRET || "dev-secret"
+        JWT_SECRET
       ) as AuthUser;
       (socket as any).user = decoded;
       next();

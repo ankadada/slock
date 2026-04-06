@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
+import { JWT_SECRET } from "../lib/jwt-config.js";
 import { authMiddleware } from "../middleware/auth.js";
 
 export const authRouter = Router();
@@ -22,7 +23,7 @@ const loginSchema = z.object({
 function generateToken(user: { id: string; username: string; email: string }): string {
   return jwt.sign(
     { id: user.id, username: user.username, email: user.email },
-    process.env.JWT_SECRET || "dev-secret",
+    JWT_SECRET,
     { expiresIn: "7d" }
   );
 }

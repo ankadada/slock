@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { JWT_SECRET } from "../lib/jwt-config.js";
 
 export interface AuthUser {
   id: string;
@@ -24,7 +25,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   const token = authHeader.slice(7);
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret") as AuthUser;
+    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
     req.user = decoded;
     next();
   } catch {

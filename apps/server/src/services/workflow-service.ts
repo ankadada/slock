@@ -234,9 +234,15 @@ function waitForApproval(workflowId: string, stepIndex: number): Promise<boolean
     pendingApprovals.set(key, { resolve });
 
     // Auto-timeout after 30 minutes
-    setTimeout(() => {
+    setTimeout(async () => {
       if (pendingApprovals.has(key)) {
         pendingApprovals.delete(key);
+        try {
+          await prisma.workflow.update({
+            where: { id: workflowId },
+            data: { status: "failed" },
+          });
+        } catch { /* ignore */ }
         resolve(false);
       }
     }, 30 * 60 * 1000);

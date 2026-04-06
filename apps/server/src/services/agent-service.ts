@@ -19,6 +19,21 @@ import {
 const MAX_AGENT_TURNS = 3;
 const MAX_TOOL_CALLS_PER_TURN = 5;
 const MAX_MEMORIES_PER_AGENT_CHANNEL = 50;
+const AI_CALL_TIMEOUT_MS = 30000; // 30 seconds
+const AGENT_EVAL_TIMEOUT_MS = 60000; // 60 seconds per agent evaluation+response
+
+/**
+ * Helper to add a timeout to any promise.
+ * Rejects with an error if the promise doesn't resolve within `ms` milliseconds.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 /**
  * Cooldown tracking for agent-to-agent mentions.
@@ -147,7 +162,11 @@ async function callAINonStreaming(
       createParams.thinking = { type: "enabled", budget_tokens: THINKING_BUDGET_MAP[thinkingLevel] };
       createParams.max_tokens = THINKING_BUDGET_MAP[thinkingLevel] + 2048;
     }
-    const response = await client.messages.create(createParams);
+    const response = await withTimeout(
+      client.messages.create(createParams),
+      AI_CALL_TIMEOUT_MS,
+      "AI evaluation call"
+    );
     return response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
@@ -169,7 +188,11 @@ async function callAINonStreaming(
       const effortMap: Record<string, string> = { low: "low", medium: "medium", high: "high" };
       createParams.reasoning_effort = effortMap[thinkingLevel] || "medium";
     }
-    const response = await client.chat.completions.create(createParams);
+    const response = await withTimeout(
+      client.chat.completions.create(createParams),
+      AI_CALL_TIMEOUT_MS,
+      "AI evaluation call"
+    );
     return response.choices[0]?.message?.content || "";
   }
 }
@@ -699,6 +722,8 @@ export async function evaluateAndRespond(
     const agent = ca.agent;
 
     try {
+      await withTimeout(
+        (async () => {
       // Build the evaluation prompt
       const evaluationSystemPrompt =
         `You are "${agent.name}" (role: ${agent.role}).` +
@@ -732,8 +757,8 @@ export async function evaluateAndRespond(
       const decision = lines[0]?.trim().toUpperCase();
 
       if (decision !== "YES") {
-        // Agent decided not to respond; continue to next agent
-        continue;
+        // Agent decided not to respond; return from IIFE to continue to next agent
+        return;
       }
 
       // Add a small random delay (0-2 seconds) to stagger agent responses
@@ -847,8 +872,12 @@ export async function evaluateAndRespond(
           await processMessage(cleanContent, channelId, io, 1, respondedAgents);
         }
       }
+        })(),
+        AGENT_EVAL_TIMEOUT_MS,
+        `Agent ${agent.name} evaluation`
+      );
     } catch (err) {
-      console.error(`Agent ${agent.name} autonomous evaluation error:`, err);
+      console.error(`Agent ${agent.name} timed out or failed:`, err);
       // Don't emit error to client for autonomous evaluation failures - just log and continue
     }
   }

@@ -67,12 +67,12 @@ const createTaskSchema = z.object({
   managerAgentId: z.string(),
 });
 
-taskRouter.post("/:channelId", (req: Request, res: Response) => {
+taskRouter.post("/:channelId", async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
     const body = createTaskSchema.parse(req.body);
 
-    const task = createTask({
+    const task = await createTask({
       channelId,
       title: body.title,
       description: body.description,
@@ -100,12 +100,12 @@ const updateStatusSchema = z.object({
   result: z.string().optional(),
 });
 
-taskRouter.put("/:taskId/status", (req: Request, res: Response) => {
+taskRouter.put("/:taskId/status", async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
     const body = updateStatusSchema.parse(req.body);
 
-    const updated = updateTaskStatus(taskId, body.status, body.result);
+    const updated = await updateTaskStatus(taskId, body.status, body.result);
     if (!updated) {
       res.status(404).json({ error: "Task not found" });
       return;

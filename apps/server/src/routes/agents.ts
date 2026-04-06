@@ -122,21 +122,37 @@ agentRouter.get("/:id", async (req: Request, res: Response) => {
   }
 });
 
+const updateAgentSchema = z.object({
+  name: z.string().min(1).max(50).optional(),
+  role: z.string().max(50).optional(),
+  avatar: z.string().optional(),
+  description: z.string().min(1).max(2000).optional(),
+  systemPrompt: z.string().max(10000).optional(),
+  model: z.string().max(100).optional(),
+  provider: z.string().max(50).optional(),
+  thinkingLevel: z.enum(["none", "low", "medium", "high"]).optional(),
+  isActive: z.boolean().optional(),
+  capabilities: z.array(z.string()).optional(),
+  tools: z.array(z.any()).optional(),
+}).strict();
+
 // Update agent
 agentRouter.put("/:id", async (req: Request, res: Response) => {
   try {
+    const body = updateAgentSchema.parse(req.body);
+
     const data: Record<string, any> = {};
-    if (req.body.name !== undefined) data.name = req.body.name;
-    if (req.body.role !== undefined) data.role = req.body.role;
-    if (req.body.avatar !== undefined) data.avatar = req.body.avatar;
-    if (req.body.description !== undefined) data.description = req.body.description;
-    if (req.body.systemPrompt !== undefined) data.systemPrompt = req.body.systemPrompt;
-    if (req.body.model !== undefined) data.model = req.body.model;
-    if (req.body.provider !== undefined) data.provider = req.body.provider;
-    if (req.body.thinkingLevel !== undefined) data.thinkingLevel = req.body.thinkingLevel;
-    if (req.body.isActive !== undefined) data.isActive = req.body.isActive;
-    if (req.body.capabilities !== undefined) data.capabilities = JSON.stringify(req.body.capabilities);
-    if (req.body.tools !== undefined) data.tools = JSON.stringify(req.body.tools);
+    if (body.name !== undefined) data.name = body.name;
+    if (body.role !== undefined) data.role = body.role;
+    if (body.avatar !== undefined) data.avatar = body.avatar;
+    if (body.description !== undefined) data.description = body.description;
+    if (body.systemPrompt !== undefined) data.systemPrompt = body.systemPrompt;
+    if (body.model !== undefined) data.model = body.model;
+    if (body.provider !== undefined) data.provider = body.provider;
+    if (body.thinkingLevel !== undefined) data.thinkingLevel = body.thinkingLevel;
+    if (body.isActive !== undefined) data.isActive = body.isActive;
+    if (body.capabilities !== undefined) data.capabilities = JSON.stringify(body.capabilities);
+    if (body.tools !== undefined) data.tools = JSON.stringify(body.tools);
 
     const agent = await prisma.agentConfig.update({
       where: { id: req.params.id },
@@ -145,6 +161,10 @@ agentRouter.put("/:id", async (req: Request, res: Response) => {
 
     res.json({ data: serializeAgent(agent) });
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: err.errors[0].message });
+      return;
+    }
     console.error("Update agent error:", err);
     res.status(500).json({ error: "Failed to update agent" });
   }

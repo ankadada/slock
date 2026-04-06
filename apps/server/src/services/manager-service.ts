@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { prisma } from "../lib/prisma.js";
+import { withFileLock } from "../lib/file-lock.js";
 import { getProviderConfig } from "../routes/settings.js";
 import type { ServerToClientEvents, ClientToServerEvents } from "@slock/shared";
 
@@ -69,35 +70,39 @@ export function getTask(taskId: string): AgentTask | undefined {
   return all.find((t) => t.id === taskId);
 }
 
-export function createTask(task: Omit<AgentTask, "id" | "createdAt" | "updatedAt">): AgentTask {
-  const now = new Date().toISOString();
-  const newTask: AgentTask = {
-    ...task,
-    id: uuid(),
-    createdAt: now,
-    updatedAt: now,
-  };
-  const all = loadTasks();
-  all.push(newTask);
-  saveTasks(all);
-  return newTask;
+export async function createTask(task: Omit<AgentTask, "id" | "createdAt" | "updatedAt">): Promise<AgentTask> {
+  return withFileLock("tasks", async () => {
+    const now = new Date().toISOString();
+    const newTask: AgentTask = {
+      ...task,
+      id: uuid(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const all = loadTasks();
+    all.push(newTask);
+    saveTasks(all);
+    return newTask;
+  });
 }
 
-export function updateTaskStatus(
+export async function updateTaskStatus(
   taskId: string,
   status: AgentTask["status"],
   result?: string
-): AgentTask | undefined {
-  const all = loadTasks();
-  const idx = all.findIndex((t) => t.id === taskId);
-  if (idx === -1) return undefined;
-  all[idx].status = status;
-  all[idx].updatedAt = new Date().toISOString();
-  if (result !== undefined) {
-    all[idx].result = result;
-  }
-  saveTasks(all);
-  return all[idx];
+): Promise<AgentTask | undefined> {
+  return withFileLock("tasks", async () => {
+    const all = loadTasks();
+    const idx = all.findIndex((t) => t.id === taskId);
+    if (idx === -1) return undefined;
+    all[idx].status = status;
+    all[idx].updatedAt = new Date().toISOString();
+    if (result !== undefined) {
+      all[idx].result = result;
+    }
+    saveTasks(all);
+    return all[idx];
+  });
 }
 
 // ============================================================
@@ -342,9 +347,11 @@ export async function decomposeTask(
   });
 
   // Persist all tasks
-  const all = loadTasks();
-  all.push(parentTask, ...subTasks);
-  saveTasks(all);
+  await withFileLock("tasks", async () => {
+    const all = loadTasks();
+    all.push(parentTask, ...subTasks);
+    saveTasks(all);
+  });
 
   return [parentTask, ...subTasks];
 }
@@ -734,7 +741,7 @@ export async function runManagerPipeline(
   for (const task of subTasks) {
     try {
       // Update status to in_progress
-      updateTaskStatus(task.id, "in_progress");
+      await updateTaskStatus(task.id, "in_progress");
       task.status = "in_progress";
       emitTaskUpdate(task, io);
 
@@ -742,7 +749,7 @@ export async function runManagerPipeline(
       const result = await executeTask(task, io);
 
       // Mark completed
-      const updated = updateTaskStatus(task.id, "completed", result.slice(0, 2000));
+      const updated = await updateTaskStatus(task.id, "completed", result.slice(0, 2000));
       if (updated) {
         Object.assign(task, updated);
       }
@@ -750,7 +757,7 @@ export async function runManagerPipeline(
     } catch (err) {
       console.error(`Task "${task.title}" execution failed:`, err);
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
-      const updated = updateTaskStatus(task.id, "failed", errorMsg);
+      const updated = await updateTaskStatus(task.id, "failed", errorMsg);
       if (updated) {
         Object.assign(task, updated);
       }
@@ -762,7 +769,7 @@ export async function runManagerPipeline(
   const allCompleted = subTasks.every((t) => t.status === "completed");
   const anyFailed = subTasks.some((t) => t.status === "failed");
   const parentStatus: AgentTask["status"] = allCompleted ? "completed" : anyFailed ? "failed" : "completed";
-  updateTaskStatus(parentTask.id, parentStatus);
+  await updateTaskStatus(parentTask.id, parentStatus);
   parentTask.status = parentStatus;
   emitTaskUpdate(parentTask, io);
 

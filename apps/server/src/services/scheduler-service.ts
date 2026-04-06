@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { prisma } from "../lib/prisma.js";
+import { withFileLock } from "../lib/file-lock.js";
 import { getProviderConfig } from "../routes/settings.js";
 import type { ServerToClientEvents, ClientToServerEvents } from "@slock/shared";
 
@@ -256,44 +257,50 @@ export function saveSchedules(schedules: AgentSchedule[]): void {
 // CRUD
 // ============================================================
 
-export function createSchedule(
+export async function createSchedule(
   data: Omit<AgentSchedule, "id" | "createdAt" | "nextRun">
-): AgentSchedule {
-  const schedules = loadSchedules();
-  const schedule: AgentSchedule = {
-    ...data,
-    id: uuid(),
-    createdAt: new Date().toISOString(),
-    nextRun: data.enabled ? calculateNextRun(data.cron) : undefined,
-  };
-  schedules.push(schedule);
-  saveSchedules(schedules);
-  return schedule;
+): Promise<AgentSchedule> {
+  return withFileLock("schedules", async () => {
+    const schedules = loadSchedules();
+    const schedule: AgentSchedule = {
+      ...data,
+      id: uuid(),
+      createdAt: new Date().toISOString(),
+      nextRun: data.enabled ? calculateNextRun(data.cron) : undefined,
+    };
+    schedules.push(schedule);
+    saveSchedules(schedules);
+    return schedule;
+  });
 }
 
-export function updateSchedule(
+export async function updateSchedule(
   id: string,
   updates: Partial<AgentSchedule>
-): AgentSchedule {
-  const schedules = loadSchedules();
-  const idx = schedules.findIndex((s) => s.id === id);
-  if (idx === -1) throw new Error("Schedule not found");
+): Promise<AgentSchedule> {
+  return withFileLock("schedules", async () => {
+    const schedules = loadSchedules();
+    const idx = schedules.findIndex((s) => s.id === id);
+    if (idx === -1) throw new Error("Schedule not found");
 
-  const schedule = { ...schedules[idx], ...updates };
-  // Recalculate nextRun if cron or enabled changed
-  if (updates.cron !== undefined || updates.enabled !== undefined) {
-    schedule.nextRun = schedule.enabled ? calculateNextRun(schedule.cron) : undefined;
-  }
-  schedules[idx] = schedule;
-  saveSchedules(schedules);
-  return schedule;
+    const schedule = { ...schedules[idx], ...updates };
+    // Recalculate nextRun if cron or enabled changed
+    if (updates.cron !== undefined || updates.enabled !== undefined) {
+      schedule.nextRun = schedule.enabled ? calculateNextRun(schedule.cron) : undefined;
+    }
+    schedules[idx] = schedule;
+    saveSchedules(schedules);
+    return schedule;
+  });
 }
 
-export function deleteSchedule(id: string): void {
-  const schedules = loadSchedules();
-  const filtered = schedules.filter((s) => s.id !== id);
-  if (filtered.length === schedules.length) throw new Error("Schedule not found");
-  saveSchedules(filtered);
+export async function deleteSchedule(id: string): Promise<void> {
+  return withFileLock("schedules", async () => {
+    const schedules = loadSchedules();
+    const filtered = schedules.filter((s) => s.id !== id);
+    if (filtered.length === schedules.length) throw new Error("Schedule not found");
+    saveSchedules(filtered);
+  });
 }
 
 export function getSchedules(filter?: {
@@ -452,13 +459,15 @@ export async function executeScheduledTask(
     } as any);
 
     // 6. Update lastRun timestamp
-    const schedules = loadSchedules();
-    const idx = schedules.findIndex((s) => s.id === schedule.id);
-    if (idx !== -1) {
-      schedules[idx].lastRun = new Date().toISOString();
-      schedules[idx].nextRun = calculateNextRun(schedule.cron);
-      saveSchedules(schedules);
-    }
+    await withFileLock("schedules", async () => {
+      const schedules = loadSchedules();
+      const idx = schedules.findIndex((s) => s.id === schedule.id);
+      if (idx !== -1) {
+        schedules[idx].lastRun = new Date().toISOString();
+        schedules[idx].nextRun = calculateNextRun(schedule.cron);
+        saveSchedules(schedules);
+      }
+    });
 
     console.log(`[Scheduler] Completed: "${schedule.name}" - posted message ${messageId}`);
   } catch (err) {

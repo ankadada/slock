@@ -49,10 +49,10 @@ export function createSchedulesRouter(
     enabled: z.boolean().default(true),
   });
 
-  router.post("/", (req: Request, res: Response) => {
+  router.post("/", async (req: Request, res: Response) => {
     try {
       const body = createSchema.parse(req.body);
-      const schedule = createSchedule(body);
+      const schedule = await createSchedule(body);
       res.json({
         data: {
           ...schedule,
@@ -70,9 +70,9 @@ export function createSchedulesRouter(
   });
 
   // PUT /api/schedules/:id
-  router.put("/:id", (req: Request, res: Response) => {
+  router.put("/:id", async (req: Request, res: Response) => {
     try {
-      const schedule = updateSchedule(req.params.id as string, req.body);
+      const schedule = await updateSchedule(req.params.id as string, req.body);
       res.json({
         data: {
           ...schedule,
@@ -90,9 +90,9 @@ export function createSchedulesRouter(
   });
 
   // DELETE /api/schedules/:id
-  router.delete("/:id", (req: Request, res: Response) => {
+  router.delete("/:id", async (req: Request, res: Response) => {
     try {
-      deleteSchedule(req.params.id as string);
+      await deleteSchedule(req.params.id as string);
       res.json({ message: "Schedule deleted" });
     } catch (err) {
       if (err instanceof Error && err.message === "Schedule not found") {
