@@ -281,6 +281,8 @@ async function runAgentTurn(
         }
       }
 
+      // Collect all tool results first, then push ONE assistant + ONE user message
+      const toolResults: { type: "tool_result"; tool_use_id: string; content: string }[] = [];
       for (const block of assistantContent) {
         if (block.type === "tool_use") {
           hasToolUse = true;
@@ -304,18 +306,16 @@ async function runAgentTurn(
             result: skillResult,
           });
 
-          anthropicMessages.push({ role: "assistant", content: assistantContent });
-          anthropicMessages.push({
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: block.id,
-                content: skillResult.text,
-              },
-            ],
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: skillResult.text,
           });
         }
+      }
+      if (toolResults.length > 0) {
+        anthropicMessages.push({ role: "assistant", content: assistantContent });
+        anthropicMessages.push({ role: "user", content: toolResults });
       }
 
       if (!hasToolUse || response.stop_reason === "end_turn") break;

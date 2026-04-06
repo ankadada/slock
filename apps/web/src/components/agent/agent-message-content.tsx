@@ -7,12 +7,14 @@ interface AgentMessageContentProps {
   content: string;
   uiComponent?: UIComponent;
   isStreaming?: boolean;
+  messageId?: string;
 }
 
 export function AgentMessageContent({
   content,
   uiComponent,
   isStreaming,
+  messageId,
 }: AgentMessageContentProps) {
   return (
     <div className="space-y-2">
@@ -27,7 +29,7 @@ export function AgentMessageContent({
       >
         <ReactMarkdown>{content}</ReactMarkdown>
       </div>
-      {uiComponent && !isStreaming && <GenerativeUI component={uiComponent} />}
+      {uiComponent && !isStreaming && <GenerativeUI component={uiComponent} messageId={messageId} />}
     </div>
   );
 }

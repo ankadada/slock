@@ -16,26 +16,30 @@ import { Check, X, Copy, CheckCheck } from "lucide-react";
 
 interface GenerativeUIProps {
   component: UIComponent;
+  messageId?: string;
 }
 
-export function GenerativeUI({ component }: GenerativeUIProps) {
+export function GenerativeUI({ component, messageId }: GenerativeUIProps) {
   if (!component || !component.type) return null;
 
   try {
-    return <GenerativeUIInner component={component} />;
+    return <GenerativeUIInner component={component} messageId={messageId} />;
   } catch {
     return <div className="text-xs text-muted-foreground italic p-2">[UI component render error]</div>;
   }
 }
 
-function GenerativeUIInner({ component }: GenerativeUIProps) {
+function GenerativeUIInner({ component, messageId }: GenerativeUIProps) {
+  // Use messageId for socket actions (so server can find the message), fall back to component.id
+  const actionId = messageId || component.id;
+
   switch (component.type) {
     case "card":
       return <UICard props={component.props as unknown as CardProps} />;
     case "form":
       return (
         <UIForm
-          componentId={component.id}
+          componentId={actionId}
           props={component.props as unknown as FormProps}
           actions={component.actions}
         />
@@ -47,7 +51,7 @@ function GenerativeUIInner({ component }: GenerativeUIProps) {
     case "approval":
       return (
         <UIApproval
-          componentId={component.id}
+          componentId={actionId}
           props={component.props as unknown as ApprovalProps}
           actions={component.actions}
         />

@@ -3,6 +3,24 @@ import { prisma } from "../lib/prisma.js";
 
 export const messageRouter = Router();
 
+// Get thread replies for a message (must be before /:channelId to avoid path collision)
+messageRouter.get("/thread/:parentId", async (req: Request, res: Response) => {
+  try {
+    const messages = await prisma.message.findMany({
+      where: { parentId: req.params.parentId },
+      include: {
+        user: { select: { id: true, username: true, avatar: true, isOnline: true } },
+        agent: { select: { id: true, name: true, role: true, avatar: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    res.json({ data: messages });
+  } catch (err) {
+    console.error("Get thread messages error:", err);
+    res.status(500).json({ error: "Failed to get thread messages" });
+  }
+});
+
 // Get messages for a channel (cursor-based pagination)
 messageRouter.get("/:channelId", async (req: Request, res: Response) => {
   try {

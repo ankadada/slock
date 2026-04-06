@@ -105,6 +105,13 @@ channelRouter.get("/:id", async (req: Request, res: Response) => {
       return;
     }
 
+    // Membership check for private channels
+    const isMember = channel.members.some((m) => m.userId === req.user!.id);
+    if (!isMember && channel.type === "private") {
+      res.status(403).json({ error: "Not a member of this channel" });
+      return;
+    }
+
     res.json({
       data: {
         id: channel.id,
