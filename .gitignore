@@ -6,4 +6,5 @@ dist
 .DS_Store
 .turbo
 settings.json
+apps/server/data/
 .claude/
