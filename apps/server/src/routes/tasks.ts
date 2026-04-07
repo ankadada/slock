@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
+import { prisma } from "../lib/prisma.js";
+import { requireChannelMember } from "../middleware/auth.js";
 import {
   getChannelTasks,
   getTask,
@@ -11,7 +13,7 @@ import {
 export const taskRouter = Router();
 
 // GET /api/tasks/:channelId — list tasks for a channel
-taskRouter.get("/:channelId", (req: Request, res: Response) => {
+taskRouter.get("/:channelId", requireChannelMember, (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
     const tasks = getChannelTasks(channelId);
@@ -31,7 +33,7 @@ taskRouter.get("/:channelId", (req: Request, res: Response) => {
 });
 
 // GET /api/tasks/:channelId/:taskId — get task detail
-taskRouter.get("/:channelId/:taskId", (req: Request, res: Response) => {
+taskRouter.get("/:channelId/:taskId", requireChannelMember, (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
     const task = getTask(taskId);
@@ -67,7 +69,7 @@ const createTaskSchema = z.object({
   managerAgentId: z.string(),
 });
 
-taskRouter.post("/:channelId", async (req: Request, res: Response) => {
+taskRouter.post("/:channelId", requireChannelMember, async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
     const body = createTaskSchema.parse(req.body);
@@ -104,6 +106,24 @@ taskRouter.put("/:taskId/status", async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
     const body = updateStatusSchema.parse(req.body);
+
+    // Look up task to get channelId for membership check
+    const task = getTask(taskId);
+    if (!task) {
+      res.status(404).json({ error: "Task not found" });
+      return;
+    }
+
+    const user = req.user!;
+    if (user.platformRole !== "superadmin" && user.platformRole !== "admin") {
+      const membership = await prisma.channelMember.findUnique({
+        where: { userId_channelId: { userId: user.id, channelId: task.channelId } },
+      });
+      if (!membership) {
+        res.status(403).json({ error: "Not a member of this channel" });
+        return;
+      }
+    }
 
     const updated = await updateTaskStatus(taskId, body.status, body.result);
     if (!updated) {

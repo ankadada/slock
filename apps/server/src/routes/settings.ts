@@ -9,6 +9,8 @@ import {
   maskApiKey,
   type DetectedProvider,
 } from "../services/provider-detector.js";
+import { requireAdmin } from "../middleware/auth.js";
+import { audit } from "../services/audit-service.js";
 
 export const settingsRouter = Router();
 
@@ -84,7 +86,7 @@ function resolveEffective(
 }
 
 // Get current settings (masks API keys)
-settingsRouter.get("/", (_req: Request, res: Response) => {
+settingsRouter.get("/", requireAdmin, (_req: Request, res: Response) => {
   const settings = loadSettings();
   const p = settings.providers;
 
@@ -112,7 +114,7 @@ settingsRouter.get("/", (_req: Request, res: Response) => {
 });
 
 // GET /api/settings/providers — auto-detected providers with masked keys
-settingsRouter.get("/providers", async (_req: Request, res: Response) => {
+settingsRouter.get("/providers", requireAdmin, async (_req: Request, res: Response) => {
   try {
     const settings = loadSettings();
     const detected = await detectProviders();
@@ -167,7 +169,7 @@ const updateSchema = z.object({
   baseUrl: z.string().optional(),
 });
 
-settingsRouter.put("/", (req: Request, res: Response) => {
+settingsRouter.put("/", requireAdmin, (req: Request, res: Response) => {
   try {
     const body = updateSchema.parse(req.body);
     const settings = loadSettings();
@@ -181,6 +183,15 @@ settingsRouter.put("/", (req: Request, res: Response) => {
     if (body.baseUrl !== undefined) config.baseUrl = body.baseUrl || undefined;
 
     saveSettings(settings);
+
+    audit({
+      actorId: req.user!.id,
+      action: "update_settings",
+      resourceType: "settings",
+      resourceId: body.provider,
+      metadata: { provider: body.provider, hasKey: !!config.apiKey, hasBaseUrl: !!config.baseUrl },
+      ip: req.ip,
+    });
 
     res.json({
       message: "Settings updated",

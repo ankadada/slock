@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { AGENT_ROLE_PROMPTS } from "@slock/shared";
 import type { AgentRole } from "@slock/shared";
 import { PRESET_TOOL_DEFINITIONS } from "../skills/preset-skills.js";
+import { audit } from "../services/audit-service.js";
 
 export const agentRouter = Router();
 
@@ -81,7 +82,17 @@ agentRouter.post("/", async (req: Request, res: Response) => {
         thinkingLevel: body.thinkingLevel,
         capabilities: JSON.stringify(body.capabilities),
         tools: JSON.stringify(body.tools),
+        creatorId: req.user!.id,
       },
+    });
+
+    audit({
+      actorId: req.user!.id,
+      action: "create_agent",
+      resourceType: "agent",
+      resourceId: agent.id,
+      metadata: { name: body.name, role: body.role },
+      ip: req.ip,
     });
 
     res.json({ data: serializeAgent(agent) });
@@ -139,6 +150,18 @@ const updateAgentSchema = z.object({
 // Update agent
 agentRouter.put("/:id", async (req: Request, res: Response) => {
   try {
+    const existing = await prisma.agentConfig.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+
+    const isPlatformAdmin = req.user!.platformRole === "superadmin" || req.user!.platformRole === "admin";
+    if (existing.creatorId !== req.user!.id && !isPlatformAdmin) {
+      res.status(403).json({ error: "Only the creator or platform admin can update this agent" });
+      return;
+    }
+
     const body = updateAgentSchema.parse(req.body);
 
     const data: Record<string, any> = {};
@@ -159,6 +182,15 @@ agentRouter.put("/:id", async (req: Request, res: Response) => {
       data,
     });
 
+    audit({
+      actorId: req.user!.id,
+      action: "update_agent",
+      resourceType: "agent",
+      resourceId: agent.id,
+      metadata: { updatedFields: Object.keys(data) },
+      ip: req.ip,
+    });
+
     res.json({ data: serializeAgent(agent) });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -173,7 +205,29 @@ agentRouter.put("/:id", async (req: Request, res: Response) => {
 // Delete agent
 agentRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
+    const existing = await prisma.agentConfig.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+
+    const isPlatformAdmin = req.user!.platformRole === "superadmin" || req.user!.platformRole === "admin";
+    if (existing.creatorId !== req.user!.id && !isPlatformAdmin) {
+      res.status(403).json({ error: "Only the creator or platform admin can delete this agent" });
+      return;
+    }
+
     await prisma.agentConfig.delete({ where: { id: req.params.id } });
+
+    audit({
+      actorId: req.user!.id,
+      action: "delete_agent",
+      resourceType: "agent",
+      resourceId: req.params.id,
+      metadata: { name: existing.name },
+      ip: req.ip,
+    });
+
     res.json({ message: "Agent deleted" });
   } catch (err) {
     console.error("Delete agent error:", err);

@@ -5,6 +5,8 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { JWT_SECRET } from "../lib/jwt-config.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { authLimiter } from "../middleware/rate-limit.js";
+import { audit } from "../services/audit-service.js";
 
 export const authRouter = Router();
 
@@ -20,15 +22,15 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-function generateToken(user: { id: string; username: string; email: string }): string {
+function generateToken(user: { id: string; username: string; email: string; platformRole: string }): string {
   return jwt.sign(
-    { id: user.id, username: user.username, email: user.email },
+    { id: user.id, username: user.username, email: user.email, platformRole: user.platformRole },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
 }
 
-authRouter.post("/register", async (req: Request, res: Response) => {
+authRouter.post("/register", authLimiter, async (req: Request, res: Response) => {
   try {
     const body = registerSchema.parse(req.body);
 
@@ -85,6 +87,7 @@ authRouter.post("/register", async (req: Request, res: Response) => {
     }
 
     const token = generateToken(user);
+    audit({ actorId: user.id, action: "register", resourceType: "user", resourceId: user.id, ip: req.ip });
     res.json({
       data: {
         token,
@@ -108,7 +111,7 @@ authRouter.post("/register", async (req: Request, res: Response) => {
   }
 });
 
-authRouter.post("/login", async (req: Request, res: Response) => {
+authRouter.post("/login", authLimiter, async (req: Request, res: Response) => {
   try {
     const body = loginSchema.parse(req.body);
 
@@ -127,6 +130,7 @@ authRouter.post("/login", async (req: Request, res: Response) => {
     }
 
     const token = generateToken(user);
+    audit({ actorId: user.id, action: "login", resourceType: "user", resourceId: user.id, ip: req.ip });
     res.json({
       data: {
         token,

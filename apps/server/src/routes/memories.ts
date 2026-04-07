@@ -1,9 +1,11 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
+import { requireChannelMember } from "../middleware/auth.js";
 import {
   generateDailySummary,
   getSharedMemories as getSharedMemoriesService,
 } from "../services/memory-service.js";
+import { audit } from "../services/audit-service.js";
 
 export const memoryRouter = Router();
 
@@ -11,7 +13,7 @@ export const memoryRouter = Router();
  * GET /api/memories/:agentId/:channelId
  * Get all memories for an agent in a channel, organized by layer.
  */
-memoryRouter.get("/:agentId/:channelId", async (req: Request, res: Response) => {
+memoryRouter.get("/:agentId/:channelId", requireChannelMember, async (req: Request, res: Response) => {
   try {
     const { agentId, channelId } = req.params;
 
@@ -54,7 +56,7 @@ memoryRouter.get("/:agentId/:channelId", async (req: Request, res: Response) => 
  * GET /api/memories/shared/:channelId
  * Get shared memories for a channel.
  */
-memoryRouter.get("/shared/:channelId", async (req: Request, res: Response) => {
+memoryRouter.get("/shared/:channelId", requireChannelMember, async (req: Request, res: Response) => {
   try {
     const { channelId } = req.params;
 
@@ -91,8 +93,34 @@ memoryRouter.delete("/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
+    const memory = await prisma.agentMemory.findUnique({ where: { id } });
+    if (!memory) {
+      res.status(404).json({ error: "Memory not found" });
+      return;
+    }
+
+    // Check channel membership
+    const user = req.user!;
+    if (user.platformRole !== "superadmin" && user.platformRole !== "admin") {
+      const membership = await prisma.channelMember.findUnique({
+        where: { userId_channelId: { userId: user.id, channelId: memory.channelId } },
+      });
+      if (!membership) {
+        res.status(403).json({ error: "Not a member of this channel" });
+        return;
+      }
+    }
+
     await prisma.agentMemory.delete({
       where: { id },
+    });
+
+    audit({
+      actorId: req.user!.id,
+      action: "delete_memory",
+      resourceType: "memory",
+      resourceId: id,
+      ip: req.ip,
     });
 
     res.json({ message: "Memory deleted" });
@@ -106,7 +134,7 @@ memoryRouter.delete("/:id", async (req: Request, res: Response) => {
  * POST /api/memories/:agentId/:channelId/summarize
  * Trigger daily summary generation for an agent in a channel.
  */
-memoryRouter.post("/:agentId/:channelId/summarize", async (req: Request, res: Response) => {
+memoryRouter.post("/:agentId/:channelId/summarize", requireChannelMember, async (req: Request, res: Response) => {
   try {
     const { agentId, channelId } = req.params;
 

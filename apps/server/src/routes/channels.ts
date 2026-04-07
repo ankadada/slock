@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { createThread, listThreads } from "./threads.js";
+import { requireChannelAdmin } from "../middleware/auth.js";
+import { audit } from "../services/audit-service.js";
 
 export const channelRouter = Router();
 
@@ -66,6 +68,14 @@ channelRouter.post("/", async (req: Request, res: Response) => {
       },
     });
 
+    audit({
+      actorId: req.user!.id,
+      action: "create_channel",
+      resourceType: "channel",
+      resourceId: channel.id,
+      ip: req.ip,
+    });
+
     res.json({
       data: {
         id: channel.id,
@@ -107,7 +117,8 @@ channelRouter.get("/:id", async (req: Request, res: Response) => {
 
     // Membership check for private channels
     const isMember = channel.members.some((m) => m.userId === req.user!.id);
-    if (!isMember && channel.type === "private") {
+    const isAdmin = req.user!.platformRole === "superadmin" || req.user!.platformRole === "admin";
+    if (!isMember && !isAdmin && channel.type === "private") {
       res.status(403).json({ error: "Not a member of this channel" });
       return;
     }
@@ -144,6 +155,44 @@ channelRouter.get("/:id", async (req: Request, res: Response) => {
 // Join channel
 channelRouter.post("/:id/join", async (req: Request, res: Response) => {
   try {
+    const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
+    if (!channel) {
+      res.status(404).json({ error: "Channel not found" });
+      return;
+    }
+
+    // Private channels require a valid invite code or platform admin/superadmin role
+    if (channel.type === "private") {
+      const isPlatformAdmin = req.user!.platformRole === "superadmin" || req.user!.platformRole === "admin";
+      if (!isPlatformAdmin) {
+        const inviteCode = req.body.inviteCode as string | undefined;
+        if (!inviteCode) {
+          res.status(403).json({ error: "Invite code required to join private channel" });
+          return;
+        }
+        const invite = await prisma.invite.findUnique({ where: { code: inviteCode } });
+        if (!invite || !invite.isActive) {
+          res.status(403).json({ error: "Invalid or expired invite code" });
+          return;
+        }
+        if (invite.expiresAt && invite.expiresAt < new Date()) {
+          res.status(403).json({ error: "Invalid or expired invite code" });
+          return;
+        }
+        if (invite.maxUses > 0 && invite.uses >= invite.maxUses) {
+          res.status(403).json({ error: "Invite code has reached maximum uses" });
+          return;
+        }
+        // If invite is scoped to a channel, verify it matches
+        if (invite.channelId && invite.channelId !== channel.id) {
+          res.status(403).json({ error: "This invite code is not valid for this channel" });
+          return;
+        }
+        // Increment invite usage
+        await prisma.invite.update({ where: { id: invite.id }, data: { uses: invite.uses + 1 } });
+      }
+    }
+
     await prisma.channelMember.create({
       data: {
         userId: req.user!.id,
@@ -151,6 +200,15 @@ channelRouter.post("/:id/join", async (req: Request, res: Response) => {
         role: "member",
       },
     });
+
+    audit({
+      actorId: req.user!.id,
+      action: "join_channel",
+      resourceType: "channel",
+      resourceId: req.params.id,
+      ip: req.ip,
+    });
+
     res.json({ message: "Joined channel" });
   } catch (err) {
     console.error("Join channel error:", err);
@@ -164,6 +222,15 @@ channelRouter.post("/:id/leave", async (req: Request, res: Response) => {
     await prisma.channelMember.deleteMany({
       where: { userId: req.user!.id, channelId: req.params.id },
     });
+
+    audit({
+      actorId: req.user!.id,
+      action: "leave_channel",
+      resourceType: "channel",
+      resourceId: req.params.id,
+      ip: req.ip,
+    });
+
     res.json({ message: "Left channel" });
   } catch (err) {
     console.error("Leave channel error:", err);
@@ -172,7 +239,7 @@ channelRouter.post("/:id/leave", async (req: Request, res: Response) => {
 });
 
 // Add agent to channel
-channelRouter.post("/:id/agents", async (req: Request, res: Response) => {
+channelRouter.post("/:id/agents", requireChannelAdmin, async (req: Request, res: Response) => {
   try {
     const { agentId } = req.body;
     if (!agentId) {
@@ -196,7 +263,7 @@ channelRouter.post("/:id/agents", async (req: Request, res: Response) => {
 });
 
 // Remove agent from channel
-channelRouter.delete("/:id/agents/:agentId", async (req: Request, res: Response) => {
+channelRouter.delete("/:id/agents/:agentId", requireChannelAdmin, async (req: Request, res: Response) => {
   try {
     await prisma.channelAgent.deleteMany({
       where: {

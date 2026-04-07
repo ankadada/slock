@@ -14,11 +14,14 @@ model User {
   passwordHash String
   avatar       String?
   isOnline     Boolean         @default(false)
+  platformRole String          @default("member") // superadmin | admin | member
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   messages     Message[]
   memberships  ChannelMember[]
   invites      Invite[]
+  auditLogs    AuditLog[]
+  createdAgents AgentConfig[]
 }
 
 model Channel {
@@ -37,6 +40,7 @@ model Channel {
   workflows       Workflow[]
   parentChannel   Channel?        @relation("ThreadParent", fields: [parentChannelId], references: [id])
   threads         Channel[]       @relation("ThreadParent")
+  invites         Invite[]
 }
 
 model ChannelMember {
@@ -64,6 +68,8 @@ model AgentConfig {
   provider     String         @default("anthropic")
   thinkingLevel String        @default("none") // none | low | medium | high
   isActive     Boolean        @default(true)
+  creatorId    String?
+  creator      User?          @relation(fields: [creatorId], references: [id], onDelete: SetNull)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   messages     Message[]
@@ -150,10 +156,28 @@ model Invite {
   id        String    @id @default(uuid())
   code      String    @unique
   createdBy String
+  channelId String?   // null = platform-level registration invite, non-null = scoped to specific channel
   expiresAt DateTime?
   maxUses   Int       @default(0) // 0 = unlimited
   uses      Int       @default(0)
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   creator   User      @relation(fields: [createdBy], references: [id])
+  channel   Channel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String
+  action       String   // login | create_agent | update_agent | delete_agent | update_settings | approve_workflow | etc
+  resourceType String   // user | agent | channel | settings | workflow | schedule
+  resourceId   String?
+  metadata     String?  // JSON: additional details
+  ip           String?
+  createdAt    DateTime @default(now())
+  actor        User     @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
 }

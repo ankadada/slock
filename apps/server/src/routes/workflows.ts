@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { startWorkflow, approveStep } from "../services/workflow-service.js";
+import { audit } from "../services/audit-service.js";
 
 export const workflowRouter = Router();
 
@@ -15,7 +16,7 @@ const createWorkflowSchema = z.object({
       action: z.string(),
       prompt: z.string(),
       waitForApproval: z.boolean().default(false),
-      maxTurns: z.number().default(5),
+      maxTurns: z.number().int().min(1).max(20).default(5),
     })
   ),
 });
@@ -110,8 +111,32 @@ workflowRouter.get("/:id", async (req: Request, res: Response) => {
 // Start workflow
 workflowRouter.post("/:id/start", async (req: Request, res: Response) => {
   try {
+    const workflow = await prisma.workflow.findUnique({ where: { id: req.params.id } });
+    if (!workflow) {
+      res.status(404).json({ error: "Workflow not found" });
+      return;
+    }
+
+    const isMember = await prisma.channelMember.findUnique({
+      where: { userId_channelId: { userId: req.user!.id, channelId: workflow.channelId } },
+    });
+    if (!isMember && req.user!.platformRole !== "superadmin" && req.user!.platformRole !== "admin") {
+      res.status(403).json({ error: "Not a member of this workflow's channel" });
+      return;
+    }
+
     const { io } = await import("../index.js");
     await startWorkflow(req.params.id, io);
+
+    audit({
+      actorId: req.user!.id,
+      action: "approve_workflow",
+      resourceType: "workflow",
+      resourceId: workflow.id,
+      metadata: { action: "start" },
+      ip: req.ip,
+    });
+
     res.json({ message: "Workflow started" });
   } catch (err) {
     console.error("Start workflow error:", err);
@@ -122,10 +147,34 @@ workflowRouter.post("/:id/start", async (req: Request, res: Response) => {
 // Pause workflow
 workflowRouter.post("/:id/pause", async (req: Request, res: Response) => {
   try {
+    const workflow = await prisma.workflow.findUnique({ where: { id: req.params.id } });
+    if (!workflow) {
+      res.status(404).json({ error: "Workflow not found" });
+      return;
+    }
+
+    // Verify channel membership
+    const isMember = await prisma.channelMember.findUnique({
+      where: { userId_channelId: { userId: req.user!.id, channelId: workflow.channelId } },
+    });
+    if (!isMember && req.user!.platformRole !== "superadmin" && req.user!.platformRole !== "admin") {
+      res.status(403).json({ error: "Not a member of this workflow's channel" });
+      return;
+    }
+
     await prisma.workflow.update({
       where: { id: req.params.id },
       data: { status: "paused" },
     });
+
+    audit({
+      actorId: req.user!.id,
+      action: "pause_workflow",
+      resourceType: "workflow",
+      resourceId: workflow.id,
+      ip: req.ip,
+    });
+
     res.json({ message: "Workflow paused" });
   } catch (err) {
     console.error("Pause workflow error:", err);
@@ -136,10 +185,40 @@ workflowRouter.post("/:id/pause", async (req: Request, res: Response) => {
 // Approve/reject workflow step
 workflowRouter.post("/:id/steps/:stepIndex/approve", async (req: Request, res: Response) => {
   try {
-    const { approved } = req.body;
+    const workflow = await prisma.workflow.findUnique({ where: { id: req.params.id } });
+    if (!workflow) {
+      res.status(404).json({ error: "Workflow not found" });
+      return;
+    }
+
+    // Verify channel membership
+    const isMember = await prisma.channelMember.findUnique({
+      where: { userId_channelId: { userId: req.user!.id, channelId: workflow.channelId } },
+    });
+    if (!isMember && req.user!.platformRole !== "superadmin" && req.user!.platformRole !== "admin") {
+      res.status(403).json({ error: "Not a member of this workflow's channel" });
+      return;
+    }
+
+    const approveSchema = z.object({ approved: z.boolean() });
+    const { approved } = approveSchema.parse(req.body);
     const stepIndex = parseInt(req.params.stepIndex);
+    if (isNaN(stepIndex) || stepIndex < 0) {
+      res.status(400).json({ error: "Invalid step index" });
+      return;
+    }
     const { io } = await import("../index.js");
     await approveStep(req.params.id, stepIndex, approved, io);
+
+    audit({
+      actorId: req.user!.id,
+      action: approved ? "approve_workflow" : "reject_workflow",
+      resourceType: "workflow",
+      resourceId: workflow.id,
+      metadata: { stepIndex },
+      ip: req.ip,
+    });
+
     res.json({ message: approved ? "Step approved" : "Step rejected" });
   } catch (err) {
     console.error("Approve step error:", err);

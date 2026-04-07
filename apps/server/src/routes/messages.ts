@@ -6,6 +6,25 @@ export const messageRouter = Router();
 // Get thread replies for a message (must be before /:channelId to avoid path collision)
 messageRouter.get("/thread/:parentId", async (req: Request, res: Response) => {
   try {
+    // First find the parent message to get channelId
+    const parent = await prisma.message.findUnique({
+      where: { id: req.params.parentId },
+      select: { channelId: true },
+    });
+    if (!parent) {
+      res.status(404).json({ error: "Parent message not found" });
+      return;
+    }
+
+    // Verify membership
+    const membership = await prisma.channelMember.findFirst({
+      where: { userId: req.user!.id, channelId: parent.channelId },
+    });
+    if (!membership && req.user!.platformRole !== "superadmin" && req.user!.platformRole !== "admin") {
+      res.status(403).json({ error: "Not a member of this channel" });
+      return;
+    }
+
     const messages = await prisma.message.findMany({
       where: { parentId: req.params.parentId },
       include: {
@@ -30,7 +49,7 @@ messageRouter.get("/:channelId", async (req: Request, res: Response) => {
     const membership = await prisma.channelMember.findFirst({
       where: { userId: req.user!.id, channelId },
     });
-    if (!membership) {
+    if (!membership && req.user!.platformRole !== "superadmin" && req.user!.platformRole !== "admin") {
       res.status(403).json({ error: "Not a member of this channel" });
       return;
     }
