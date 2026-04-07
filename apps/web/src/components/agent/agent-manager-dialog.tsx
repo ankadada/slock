@@ -8,7 +8,7 @@ import { useAgentStore } from "@/stores/agent-store";
 import { useChannelStore } from "@/stores/channel-store";
 import { AGENT_ROLE_LABELS, MODEL_OPTIONS, MODEL_CATEGORY_LABELS, THINKING_LEVEL_LABELS } from "@slock/shared";
 import type { AgentRole, ModelCategory, CreateAgentRequest, AgentDefinition, ThinkingLevel } from "@slock/shared";
-import { Plus, Trash2, UserPlus, UserMinus, Bot, Wrench } from "lucide-react";
+import { Plus, Trash2, UserPlus, UserMinus, Bot, Wrench, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as api from "@/lib/api";
 import { AgentSkillsEditor } from "./agent-skills-editor";
@@ -18,7 +18,7 @@ interface AgentManagerDialogProps {
   onClose: () => void;
 }
 
-type Tab = "list" | "create" | "skills";
+type Tab = "list" | "create" | "edit" | "skills";
 
 export function AgentManagerDialog({ open, onClose }: AgentManagerDialogProps) {
   const [tab, setTab] = useState<Tab>("list");
@@ -75,6 +75,11 @@ export function AgentManagerDialog({ open, onClose }: AgentManagerDialogProps) {
   const handleOpenSkills = (agent: AgentDefinition) => {
     setSelectedAgent(agent);
     setTab("skills");
+  };
+
+  const handleEditAgent = (agent: AgentDefinition) => {
+    setSelectedAgent(agent);
+    setTab("edit");
   };
 
   return (
@@ -153,6 +158,15 @@ export function AgentManagerDialog({ open, onClose }: AgentManagerDialogProps) {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => handleEditAgent(agent)}
+                        className="h-7 w-7 text-muted-foreground hover:text-primary"
+                        title="Edit Agent"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => handleOpenSkills(agent)}
                         className="h-7 w-7 text-muted-foreground hover:text-primary"
                         title="Manage Skills"
@@ -214,6 +228,17 @@ export function AgentManagerDialog({ open, onClose }: AgentManagerDialogProps) {
               const updatedAgents = await api.getAgents();
               const updated = updatedAgents.find((a) => a.id === selectedAgent.id);
               if (updated) setSelectedAgent(updated);
+            }}
+          />
+        </ScrollArea>
+      ) : tab === "edit" && selectedAgent ? (
+        <ScrollArea className="max-h-[60vh]">
+          <EditAgentForm
+            agent={selectedAgent}
+            onSaved={() => {
+              setTab("list");
+              setSelectedAgent(null);
+              fetchAgents();
             }}
           />
         </ScrollArea>
@@ -446,6 +471,176 @@ function CreateAgentForm({ onCreated }: { onCreated: () => void }) {
           }
         >
           {isSubmitting ? "Creating..." : "Create Agent"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function EditAgentForm({ agent, onSaved }: { agent: AgentDefinition; onSaved: () => void }) {
+  const [name, setName] = useState(agent.name);
+  const [description, setDescription] = useState(agent.description);
+  const [category, setCategory] = useState<ModelCategory>(
+    (["anthropic", "openai", "gemini", "other"].includes(agent.provider) ? agent.provider : "anthropic") as ModelCategory
+  );
+  const [model, setModel] = useState(agent.model);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(agent.thinkingLevel || "none");
+  const [autoRespond, setAutoRespond] = useState(agent.capabilities?.includes("auto_respond") ?? true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const updateAgent = useAgentStore((s) => s.updateAgent);
+
+  const categories = Object.entries(MODEL_CATEGORY_LABELS) as [ModelCategory, string][];
+  const availableModels = MODEL_OPTIONS.filter((m) => m.provider === category);
+
+  const handleCategoryChange = (c: ModelCategory) => {
+    setCategory(c);
+    const firstModel = MODEL_OPTIONS.find((m) => m.provider === c);
+    setModel(firstModel?.id || model);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !description.trim()) return;
+
+    setIsSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      const capabilities = agent.capabilities?.filter((c) => c !== "auto_respond" && c !== "chat") || [];
+      capabilities.unshift("chat");
+      if (autoRespond) capabilities.push("auto_respond");
+
+      await updateAgent(agent.id, {
+        name: name.trim(),
+        description: description.trim(),
+        provider: category,
+        model,
+        thinkingLevel,
+        capabilities,
+      });
+      setSaved(true);
+      setTimeout(onSaved, 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update agent");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSave} className="space-y-4">
+      <div>
+        <label className="text-sm font-medium text-foreground">Name</label>
+        <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1" />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-foreground">Description</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          rows={3}
+        />
+      </div>
+
+      {/* Model category */}
+      <div>
+        <label className="text-sm font-medium text-foreground">Model Category</label>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {categories.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => handleCategoryChange(id)}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-xs transition-colors",
+                category === id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:bg-accent"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Model */}
+      <div>
+        <label className="text-sm font-medium text-foreground">Model</label>
+        <div className="mt-1 space-y-1.5">
+          {availableModels.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setModel(m.id)}
+              className={cn(
+                "flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm text-left transition-colors",
+                model === m.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input text-muted-foreground hover:bg-accent"
+              )}
+            >
+              <span className="font-medium">{m.name}</span>
+              {m.description && <span className="text-xs opacity-60">{m.description}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Thinking level */}
+      <div>
+        <label className="text-sm font-medium text-foreground">Thinking Level</label>
+        <div className="flex rounded-md border border-input overflow-hidden mt-1">
+          {(Object.entries(THINKING_LEVEL_LABELS) as [ThinkingLevel, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setThinkingLevel(value)}
+              className={cn(
+                "flex-1 px-3 py-1.5 text-xs transition-colors border-r last:border-r-0",
+                thinkingLevel === value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent"
+              )}
+            >
+              {label.split(" (")[0]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Auto-respond */}
+      <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
+        <div>
+          <p className="text-sm font-medium text-foreground">Auto-respond</p>
+          <p className="text-xs text-muted-foreground">Auto-read messages and decide to respond</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setAutoRespond(!autoRespond)}
+          className={cn(
+            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors",
+            autoRespond ? "bg-primary" : "bg-muted"
+          )}
+        >
+          <span className={cn(
+            "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5",
+            autoRespond ? "translate-x-4" : "translate-x-0.5"
+          )} />
+        </button>
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {saved && <p className="text-sm text-green-500">Saved!</p>}
+
+      <div className="flex justify-end gap-2">
+        <Button type="submit" disabled={!name.trim() || !description.trim() || isSaving}>
+          {isSaving ? "Saving..." : "Save Changes"}
         </Button>
       </div>
     </form>
