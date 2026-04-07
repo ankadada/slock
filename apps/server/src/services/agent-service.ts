@@ -717,11 +717,87 @@ export async function evaluateAndRespond(
 
   const agentNames = channelAgents.map((ca) => ca.agent.name).join(", ");
 
-  // Evaluate each agent sequentially. Track who already responded so later agents
-  // know not to pile on with redundant replies.
+  // --- Agent selection strategy ---
+  // ≤3 agents: each scores relevance 1-10, highest score responds
+  // >3 agents: one AI call picks the best agent (arbiter mode)
+  let orderedAgents: typeof autoRespondAgents;
+
+  if (autoRespondAgents.length > 3) {
+    // Arbiter mode: one AI call to pick the best agent
+    try {
+      const arbiterPrompt =
+        `You are a routing assistant. A team member said:\n"${content}"\n\n` +
+        `Available agents:\n` +
+        autoRespondAgents.map((ca) => `- ${ca.agent.name} (${ca.agent.role}): ${ca.agent.description}`).join("\n") +
+        `\n\nWhich ONE agent is most relevant to respond? Reply with ONLY the agent name. If none should respond, reply "NONE".`;
+
+      const pick = await withTimeout(
+        callAINonStreaming("anthropic", "claude-haiku-4-5", arbiterPrompt, [
+          { role: "user", content: "Pick the best agent." },
+        ]),
+        AI_CALL_TIMEOUT_MS,
+        "Agent arbiter"
+      );
+
+      const pickedName = pick.trim().toLowerCase();
+      if (pickedName === "none") return;
+
+      const picked = autoRespondAgents.find(
+        (ca) => ca.agent.name.toLowerCase() === pickedName ||
+                ca.agent.name.toLowerCase().replace(/\s+/g, "") === pickedName
+      );
+      orderedAgents = picked ? [picked] : autoRespondAgents.slice(0, 1);
+    } catch {
+      orderedAgents = autoRespondAgents.slice(0, 1);
+    }
+  } else if (autoRespondAgents.length > 1) {
+    // Scoring mode: each agent rates relevance 1-10, highest wins
+    const scores: { ca: typeof autoRespondAgents[0]; score: number }[] = [];
+
+    await Promise.all(
+      autoRespondAgents.map(async (ca) => {
+        try {
+          const scorePrompt =
+            `You are "${ca.agent.name}" (${ca.agent.role}). ${ca.agent.description}\n\n` +
+            `A team member said: "${content}"\n` +
+            `Context:\n${contextLines}\n\n` +
+            `Rate 1-10 how relevant this message is to YOUR specific expertise. ` +
+            `1=completely irrelevant, 10=directly asking for your help. ` +
+            `Reply with ONLY a number.`;
+
+          const result = await withTimeout(
+            callAINonStreaming(
+              ca.agent.provider || "anthropic",
+              ca.agent.model || "claude-sonnet-4-6",
+              scorePrompt,
+              [{ role: "user", content: "Rate relevance 1-10." }]
+            ),
+            AI_CALL_TIMEOUT_MS,
+            `Score ${ca.agent.name}`
+          );
+
+          const score = parseInt(result.trim()) || 0;
+          scores.push({ ca, score });
+        } catch {
+          scores.push({ ca, score: 0 });
+        }
+      })
+    );
+
+    // Sort by score descending, only keep agents scoring >= 5
+    scores.sort((a, b) => b.score - a.score);
+    const qualified = scores.filter((s) => s.score >= 5);
+    orderedAgents = qualified.length > 0 ? [qualified[0].ca] : [];
+
+    if (orderedAgents.length === 0) return; // No agent scored high enough
+  } else {
+    orderedAgents = autoRespondAgents;
+  }
+
+  // Now evaluate and respond with the selected agent(s)
   const alreadyRespondedNames: string[] = [];
 
-  for (const ca of autoRespondAgents) {
+  for (const ca of orderedAgents) {
     const agent = ca.agent;
 
     try {
@@ -736,14 +812,13 @@ export async function evaluateAndRespond(
         `\n\nRecent conversation context:\n${contextLines}` +
         `\n\nBased on your role and expertise, should you respond to this message?` +
         `\nRules:` +
-        `\n- Only ONE agent should respond to a message. If the topic spans multiple domains, the MOST relevant agent should respond.` +
         `\n- Respond ONLY if the message is PRIMARILY about your specific expertise` +
         `\n- Do NOT respond to casual greetings like "hi", "hello", "hey"` +
         `\n- Do NOT respond if the topic belongs more to another agent's domain` +
         (alreadyRespondedNames.length > 0
-          ? `\n- IMPORTANT: These agents have ALREADY responded to this message: ${alreadyRespondedNames.join(", ")}. Do NOT respond unless you have something substantially different and important to add that they missed.`
+          ? `\n- IMPORTANT: ${alreadyRespondedNames.join(", ")} already responded. Do NOT add unless you have something substantially different.`
           : "") +
-        `\n- If in doubt, stay silent. Silence is better than redundancy.` +
+        `\n- If in doubt, stay silent.` +
         `\n\nReply with exactly "YES" or "NO" on the first line.` +
         `\nIf YES, include your full response after a blank line.`;
 
