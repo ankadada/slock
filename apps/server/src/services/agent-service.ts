@@ -717,7 +717,10 @@ export async function evaluateAndRespond(
 
   const agentNames = channelAgents.map((ca) => ca.agent.name).join(", ");
 
-  // Evaluate each agent sequentially with a small random delay
+  // Evaluate each agent sequentially. Track who already responded so later agents
+  // know not to pile on with redundant replies.
+  const alreadyRespondedNames: string[] = [];
+
   for (const ca of autoRespondAgents) {
     const agent = ca.agent;
 
@@ -733,12 +736,14 @@ export async function evaluateAndRespond(
         `\n\nRecent conversation context:\n${contextLines}` +
         `\n\nBased on your role and expertise, should you respond to this message?` +
         `\nRules:` +
-        `\n- Respond ONLY if the message is directly relevant to your expertise` +
-        `\n- Do NOT respond to casual greetings like "hi", "hello", "hey" unless specifically asking for your help` +
-        `\n- Do NOT respond to off-topic messages or things other agents are better suited for` +
-        `\n- Do NOT respond if another agent with more relevant expertise is also in the channel and the topic is clearly theirs` +
-        `\n- If the message is a general question that any team member could answer, only respond if your specific expertise adds value` +
-        `\n- If in doubt, stay silent` +
+        `\n- Only ONE agent should respond to a message. If the topic spans multiple domains, the MOST relevant agent should respond.` +
+        `\n- Respond ONLY if the message is PRIMARILY about your specific expertise` +
+        `\n- Do NOT respond to casual greetings like "hi", "hello", "hey"` +
+        `\n- Do NOT respond if the topic belongs more to another agent's domain` +
+        (alreadyRespondedNames.length > 0
+          ? `\n- IMPORTANT: These agents have ALREADY responded to this message: ${alreadyRespondedNames.join(", ")}. Do NOT respond unless you have something substantially different and important to add that they missed.`
+          : "") +
+        `\n- If in doubt, stay silent. Silence is better than redundancy.` +
         `\n\nReply with exactly "YES" or "NO" on the first line.` +
         `\nIf YES, include your full response after a blank line.`;
 
@@ -833,6 +838,9 @@ export async function evaluateAndRespond(
             }
           : undefined,
       });
+
+      // Track that this agent responded, so subsequent agents know not to pile on
+      alreadyRespondedNames.push(agent.name);
 
       // Update memories asynchronously (fire-and-forget)
       updateMemories(
