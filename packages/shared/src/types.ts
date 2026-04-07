@@ -74,6 +74,7 @@ export type AgentRole =
   | "engineer"
   | "qa"
   | "writer"
+  | "pm"
   | "custom";
 
 export type ThinkingLevel = "none" | "low" | "medium" | "high";
@@ -92,6 +93,7 @@ export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
   engineer: "Engineer",
   qa: "QA Engineer",
   writer: "Technical Writer",
+  pm: "Project Manager",
   custom: "Custom",
 };
 
@@ -108,6 +110,7 @@ export const AGENT_ROLE_PROMPTS: Record<AgentRole, string> = {
     "You are a quality assurance engineer. You think about edge cases, write test scenarios, identify potential bugs, and ensure product quality. You are thorough and systematic in your approach.",
   writer:
     "You are a technical writer. You create clear documentation, API references, user guides, and tutorials. You make complex concepts accessible and well-organized.",
+  pm: "You are a project manager and team coordinator. You assess incoming requests, determine complexity, break down tasks, assign work to the right team members, and ensure deliverables are coordinated. You only speak when coordination is needed — for simple single-domain questions, you stay silent and let the specialist handle it.",
   custom: "You are a helpful AI assistant.",
 };
 
@@ -184,6 +187,7 @@ export const ROLE_SKILL_PRESETS: Record<AgentRole, string[]> = {
   product_manager: ["create_user_story", "prioritize_features"],
   qa: ["generate_test_cases", "review_test_coverage"],
   writer: ["generate_documentation", "review_content"],
+  pm: ["pm_routing"],
   custom: ["llm_freeform"],
 };
 

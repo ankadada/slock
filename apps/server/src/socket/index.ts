@@ -2,7 +2,7 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
 import { JWT_SECRET } from "../lib/jwt-config.js";
-import { processMessage, evaluateAndRespond, processUIAction } from "../services/agent-service.js";
+import { processMessage, evaluateAndRespond, triageAndRoute, processUIAction } from "../services/agent-service.js";
 import { startWorkflow, approveStep } from "../services/workflow-service.js";
 import {
   getChannelState,
@@ -126,7 +126,7 @@ export function setupSocketHandlers(
             if (content.match(/@\w+/)) {
               await processMessage(content, channelId, io);
             } else {
-              await evaluateAndRespond(content, channelId, user.id, io);
+              await triageAndRoute(content, channelId, user.id, io);
             }
 
             // Then fire queued triggers
@@ -152,7 +152,7 @@ export function setupSocketHandlers(
         if (content.match(/@\w+/)) {
           await processMessage(content, channelId, io);
         } else {
-          await evaluateAndRespond(content, channelId, user.id, io);
+          await triageAndRoute(content, channelId, user.id, io);
         }
       } catch (err) {
         console.error("message:send error:", err);

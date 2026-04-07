@@ -967,6 +967,150 @@ export async function evaluateAndRespond(
 }
 
 /**
+ * PM Agent triage and routing.
+ * When a user sends a message without @mentions, classify the message as SIMPLE / COMPLEX / NONE
+ * and route accordingly:
+ * - NONE: no response (saves API calls)
+ * - SIMPLE: existing evaluateAndRespond() (scoring mode picks best agent)
+ * - COMPLEX: PM Agent visibly intervenes, calls runManagerPipeline()
+ */
+export async function triageAndRoute(
+  content: string,
+  channelId: string,
+  userId: string,
+  io: Server<ClientToServerEvents, ServerToClientEvents>
+): Promise<void> {
+  // 1. Find PM agent in channel (has pm_routing capability)
+  const channelAgents = await prisma.channelAgent.findMany({
+    where: { channelId },
+    include: { agent: true },
+  });
+
+  const pmAgent = channelAgents.find((ca) => {
+    try {
+      const caps = JSON.parse(ca.agent.capabilities || "[]");
+      return caps.includes("pm_routing");
+    } catch {
+      return false;
+    }
+  });
+
+  // No PM → fall back to existing behavior
+  if (!pmAgent) {
+    return evaluateAndRespond(content, channelId, userId, io);
+  }
+
+  // 2. Get list of worker agents (non-PM, active, auto_respond)
+  const workerAgents = channelAgents.filter((ca) => {
+    if (ca.agent.id === pmAgent.agent.id || !ca.agent.isActive) return false;
+    try {
+      const caps = JSON.parse(ca.agent.capabilities || "[]");
+      return caps.includes("auto_respond");
+    } catch {
+      return false;
+    }
+  });
+
+  if (workerAgents.length === 0) return;
+
+  // 3. Triage: one lightweight AI call
+  const agentList = workerAgents
+    .map((ca) => `- ${ca.agent.name} (${ca.agent.role}): ${ca.agent.description}`)
+    .join("\n");
+
+  const triagePrompt =
+    `You are a message router for a team chat. Classify this message:\n\n` +
+    `Message: "${content}"\n\n` +
+    `Available team members:\n${agentList}\n\n` +
+    `Classify as:\n` +
+    `- SIMPLE: clearly about one team member's domain, they can handle alone\n` +
+    `- COMPLEX: spans multiple domains, needs task decomposition, or requires coordination between team members\n` +
+    `- NONE: casual greeting, off-topic, or no team member should respond\n\n` +
+    `Reply with exactly one word: SIMPLE, COMPLEX, or NONE.`;
+
+  let classification = "SIMPLE";
+  try {
+    const result = await withTimeout(
+      callAINonStreaming(
+        pmAgent.agent.provider || "anthropic",
+        pmAgent.agent.model || "claude-haiku-4-5",
+        triagePrompt,
+        [{ role: "user", content: "Classify this message." }]
+      ),
+      AI_CALL_TIMEOUT_MS,
+      "PM triage"
+    );
+    classification = result.trim().toUpperCase().split(/\s/)[0] || "SIMPLE";
+  } catch {
+    classification = "SIMPLE"; // fail-open
+  }
+
+  console.log(`[PM Triage] "${content.slice(0, 50)}..." → ${classification}`);
+
+  if (classification === "NONE") return;
+  if (classification === "COMPLEX") {
+    return pmRoute(pmAgent.agent, content, channelId, io);
+  }
+  // SIMPLE → existing scoring/evaluation
+  return evaluateAndRespond(content, channelId, userId, io);
+}
+
+/**
+ * PM Agent routes a COMPLEX message.
+ * Posts a visible coordination message and delegates to the manager pipeline.
+ */
+async function pmRoute(
+  pmAgent: {
+    id: string;
+    name: string;
+    role: string;
+    avatar: string | null;
+    provider: string;
+    model: string;
+  },
+  content: string,
+  channelId: string,
+  io: Server<ClientToServerEvents, ServerToClientEvents>
+): Promise<void> {
+  // 1. PM posts a visible routing message
+  io.to(channelId).emit("agent:typing", { agentId: pmAgent.id, channelId });
+
+  const routingMsg = await prisma.message.create({
+    data: {
+      content: "这个需求涉及多个方面，我来协调一下，先拆解任务分配给团队。",
+      type: "agent",
+      agentId: pmAgent.id,
+      channelId,
+    },
+    include: {
+      agent: { select: { id: true, name: true, role: true, avatar: true } },
+    },
+  });
+
+  io.to(channelId).emit("message:new", {
+    id: routingMsg.id,
+    content: routingMsg.content,
+    type: "agent",
+    agentId: routingMsg.agentId,
+    channelId: routingMsg.channelId,
+    createdAt: routingMsg.createdAt.toISOString(),
+    updatedAt: routingMsg.updatedAt.toISOString(),
+    agent: routingMsg.agent
+      ? {
+          id: routingMsg.agent.id,
+          name: routingMsg.agent.name,
+          role: routingMsg.agent.role as any,
+          avatar: routingMsg.agent.avatar,
+        }
+      : undefined,
+  });
+
+  // 2. Run the existing manager pipeline
+  const { runManagerPipeline } = await import("./manager-service.js");
+  await runManagerPipeline(pmAgent.id, channelId, content, io);
+}
+
+/**
  * Process a message for @mentions and trigger agent responses.
  *
  * @param content        The message text to scan for @mentions

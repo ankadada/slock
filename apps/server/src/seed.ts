@@ -69,12 +69,24 @@ async function seed() {
       systemPrompt: AGENT_ROLE_PROMPTS.analyst,
       avatar: null,
     },
+    {
+      name: "PM",
+      role: "pm",
+      description: "团队协调者，负责判断需求复杂度、拆解任务、分配给合适的团队成员、跟踪进度。只在需要多人协作时介入，简单问题让专业 agent 直接处理。",
+      systemPrompt: AGENT_ROLE_PROMPTS.pm,
+      avatar: null,
+    },
   ];
 
   for (const agentData of agents) {
     const existing = await prisma.agentConfig.findFirst({
       where: { name: agentData.name },
     });
+
+    // PM agent gets pm_routing capability but NOT auto_respond
+    const capabilities = agentData.role === "pm"
+      ? ["chat", "pm_routing"]
+      : ["chat", "analyze", "recommend", "auto_respond"];
 
     const agent = existing
       ? existing
@@ -84,7 +96,7 @@ async function seed() {
             role: agentData.role,
             description: agentData.description,
             systemPrompt: agentData.systemPrompt,
-            capabilities: JSON.stringify(["chat", "analyze", "recommend", "auto_respond"]),
+            capabilities: JSON.stringify(capabilities),
             tools: JSON.stringify([]),
           },
         });
